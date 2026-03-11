@@ -38,9 +38,9 @@ Our pipeline is designed for extreme reliability, logical reasoning, and factual
 | **Frameworks** | FastAPI, LlamaIndex, LangChain |
 | **Infrastructure** | Docker Compose (Local), Kubernetes (Production) |
 
-## 📂 Project Structure
+## 📁 Project Structure
 
-\`\`\`bash
+```bash
 ├── api/                  # FastAPI endpoints, streaming routers, schemas
 ├── core/                 # App configs, Context memory (Redis), auth
 ├── ingestion/            # ETL pipelines, Sliding Window chunking, Multimodal parsers
@@ -55,7 +55,6 @@ Our pipeline is designed for extreme reliability, logical reasoning, and factual
 ├── docker-compose.yml    # Local Core Infra (Postgres, Redis, Neo4j)
 ├── requirements.txt      # Dependencies
 └── main.py               # Application entry point
-\`\`\`
 
 ## 🚀 Getting Started (Local Development)
 
