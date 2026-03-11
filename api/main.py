@@ -83,10 +83,15 @@ def ask_copilot(request: QueryRequest):
 
     try:
         logger.info("Handling /ask request for query: '%s'", request.query)
-        result = copilot_agent.generate_response(query=request.query, top_k=request.top_k)
+        result = copilot_agent.generate_response(
+            query=request.query, 
+            session_id=request.session_id, 
+            top_k=request.top_k
+        )
         
         # the result dict has 'answer' and 'source_chunks'
         answer = result.get("answer", "No answer generated.")
+        session_id = result.get("session_id", "")
         raw_sources = result.get("source_chunks", [])
         
         # Serialize raw dictionaries to Pydantic objects
@@ -103,6 +108,7 @@ def ask_copilot(request: QueryRequest):
 
         return QueryResponse(
             answer=answer,
+            session_id=session_id,
             sources=sources_schema
         )
 

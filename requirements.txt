@@ -5,9 +5,11 @@ sentence-transformers
 transformers
 fastapi
 uvicorn
-redis
-neo4j
+pydantic
+python-dotenv
 psycopg2-binary
+neo4j
+redis
 pgvector
 openai
 python-dotenv

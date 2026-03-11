@@ -7,8 +7,9 @@ prompts for the OpenAI API to enforce strict adherence to enterprise facts.
 """
 
 import os
+import uuid
 import logging
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 try:
     from dotenv import load_dotenv
@@ -16,13 +17,11 @@ try:
 except ImportError:
     pass
 
-try:
-    from openai import OpenAI
-except ImportError:
-    raise ImportError("Please install openai: pip install openai")
+import openai
 
 # Assuming hybrid_search is in the project's Python path
 from retrieval.hybrid_search import HybridSearchCoordinator
+from core.memory import RedisMemoryManager
 
 logger = logging.getLogger(__name__)
 
@@ -32,22 +31,22 @@ class EnterpriseCopilotAgent:
     Retrieval system, and the LLM for grounded response generation.
     """
 
-    def __init__(self, model_name: str = "gpt-4-turbo-preview"):
-        """
-        Initializes the Copilot agent, setting up the OpenAI client and
-        the HybridSearchCoordinator.
-        """
-        self.model_name = model_name
-        self.api_key = os.getenv("OPENAI_API_KEY", "")
+    def __init__(self, model: str = "gpt-4-turbo-preview"):
+        """Initialize the OpenAi client, retrieval system, and Redis memory."""
+        self.model = model
         
-        if not self.api_key or "placeholder" in self.api_key:
-            logger.warning("Valid OPENAI_API_KEY not found. Agent will fail on generation.")
+        # Load keys
+        self.openai_api_key = os.getenv("OPENAI_API_KEY")
+        if not self.openai_api_key:
+            logger.warning("OPENAI_API_KEY missing from environment. Agent will fail on generate().")
             
-        self.client = OpenAI(api_key=self.api_key)
+        self.client = openai.OpenAI(api_key=self.openai_api_key)
         
-        # Initialize the retrieval coordinator
-        logger.info("Initializing HybridSearchCoordinator in Copilot Agent...")
-        self.search_coordinator = HybridSearchCoordinator()
+        # Instantiate Tri-Engine Retrieval Coordinator
+        self.retriever = HybridSearchCoordinator()
+        
+        # Instantiate Semantic Memory
+        self.memory = RedisMemoryManager()
 
     def _format_context(self, hits: List[Dict[str, Any]]) -> str:
         """
@@ -99,54 +98,70 @@ STRICT GENERATION RULES (Must be followed exactly):
 If the user greets you or asks about your capabilities, you may respond naturally, but still reinforce your reliance on grounded data.
 """
 
-    def generate_response(self, query: str, top_k: int = 5) -> Dict[str, Any]:
+    def generate_response(self, query: str, session_id: Optional[str] = None, top_k: int = 5) -> Dict[str, Any]:
         """
-        Executes the full reasoning loop: Retrieval -> Context Assembly -> LLM Generation.
+        Main reasoning loop: Retrieve context, inject session history, build prompt, stream/generate text.
+        """
+        logger.info("Agent processing query: '%s'", query)
         
-        Args:
-            query (str): The user's natural language question.
-            top_k (int): Number of context chunks to retrieve.
+        # 1. Ensure Session ID
+        sid = session_id or str(uuid.uuid4())
+        
+        # 2. Retrieve Grounded Context
+        graph_expanded_hits = self.retriever.search(query, top_k=top_k)
+        
+        if not graph_expanded_hits:
+            return {
+                "answer": "I could not find any relevant enterprise knowledge to safely answer your query.",
+                "source_chunks": [],
+                "formatted_context_used": "",
+                "session_id": sid
+            }
             
-        Returns:
-            Dict containing the 'answer' string and 'source_context' used.
-        """
-        logger.info("Agent received query: '%s'", query)
+        # 3. Format Context Block
+        context_str = self._format_context(graph_expanded_hits)
         
-        # 1. Retrieval Phase (Tri-Engine Fusion)
-        logger.info("Executing retrieval phase...")
-        retrieved_hits = self.search_coordinator.search(query, top_k=top_k)
+        # 4. Fetch Previous Conversation History
+        chat_history = self.memory.get_history(sid, max_turns=5)
         
-        # 2. Context Assembly Phase
-        formatted_context = self._format_context(retrieved_hits)
+        # 5. Build LLM Messages payload
+        messages = [{"role": "system", "content": self._build_system_prompt()}]
         
-        # 3. Prompt Construction
-        system_prompt = self._build_system_prompt()
+        # Inject Memory BEFORE the final query context so LLM knows 'past' context
+        for msg in chat_history:
+            messages.append({"role": msg["role"], "content": msg["content"]})
+            
+        # Inject the final user prompt wrapped with retrieval context
+        final_user_content = (
+            f"Please answer the following User Query precisely, using ONLY the provided Source Context.\n\n"
+            f"<Source Context Block>\n{context_str}\n</Source Context Block>\n\n"
+            f"User Query: {query}"
+        )
+        messages.append({"role": "user", "content": final_user_content})
         
-        user_message_parts = [
-            f"User Query: {query}\n\n<CONTEXT>\n",
-            formatted_context,
-            "\n</CONTEXT>\n\nPlease provide your grounded answer based ONLY on the context above."
-        ]
-        user_message = "".join(user_message_parts)
-        
-        # 4. LLM Generation
-        logger.info("Calling OpenAI LLM (%s)...", self.model_name)
         try:
+            logger.info("Executing OpenAI generation (Model: %s)...", self.model)
             response = self.client.chat.completions.create(
-                model=self.model_name,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_message}
-                ],
-                temperature=0.1, # Low temperature for factual consistency
-                max_tokens=1000
+                model=self.model,
+                messages=messages, # type: ignore
+                temperature=0.0,
+                max_tokens=1024
             )
-            answer = response.choices[0].message.content
+            
+            final_answer = response.choices[0].message.content or "No response generated."
+            
+            # 6. Save new turn to Semantic Memory asynchronously (Threadpool handled by FastAPI)
+            self.memory.add_message(sid, "user", query)
+            self.memory.add_message(sid, "assistant", final_answer)
+            
+            return {
+                "answer": final_answer,
+                "source_chunks": graph_expanded_hits,
+                "formatted_context_used": context_str,
+                "session_id": sid
+            }
         except Exception as e:
             logger.error("LLM Generation failed: %s", str(e))
-            answer = f"Error during response generation: {str(e)}"
-
-        logger.info("Agent reasoning loop complete.")
         
         # Return both the generated answer and the raw retrieved payload for tracing/audit
         return {
