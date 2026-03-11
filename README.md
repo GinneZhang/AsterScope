@@ -1,38 +1,60 @@
 # 🚀 NovaSearch: Enterprise Copilot & Intelligent Retrieval Engine
 
-NovaSearch is a next-generation enterprise knowledge retrieval and reasoning system. Moving beyond traditional Keyword and simple RAG architectures, NovaSearch utilizes a **Tri-Engine Approach** (LLM Semantics + Multi-modal RAG + Knowledge Graph Reasoning) to deliver highly accurate, explainable, and hallucination-free responses for complex enterprise datasets.
+NovaSearch is a next-generation enterprise knowledge retrieval and reasoning system. Moving beyond traditional Keyword matching (BM25) and naive RAG architectures, NovaSearch utilizes a **"Tri-Engine Fusion"** approach: **LLM Semantics + Hybrid Multimodal RAG + Knowledge Graph Reasoning**. 
 
-## 🧠 Core Architecture
+Our primary objective is to deliver highly accurate, explainable, and hallucination-free Copilot experiences for complex enterprise SOPs, medical guidelines, and legal frameworks.
 
-Our architecture is designed for extreme reliability and factual grounding:
-1. **Semantic Query Engine**: Intent recognition, multi-hop decomposition, and clarification prompting.
-2. **Hybrid Multimodal Retrieval**: Three-pronged recall strategy integrating Dense (Vector), Sparse (BM25), and Structural (Graph) search.
-3. **Knowledge Graph Reasoning (KG)**: Entity linking and multi-hop traversal to ensure logical consistency and deep relationship extraction.
-4. **Controlled Generation**: Source-grounded output, continuous hallucination filtering, and streaming delivery.
+## 🧠 System Architecture & Core Pillars
+
+Our pipeline is designed for extreme reliability, logical reasoning, and factual grounding:
+
+1. **Query Understanding & Context Memory**
+   - **Structuring**: LLM-driven query rewriting, intent recognition, and structured semantic graph generation.
+   - **Decomposition**: Multi-hop task breakdown and proactive clarification prompting for ambiguous queries.
+   - **Context**: Agent-based cross-session thread linking and memory state management via Redis.
+
+2. **Hybrid Multimodal Retrieval**
+   - **Tri-Retrieval Fusion**: Integrating Sparse (BM25/Elasticsearch), Dense (FAISS/BGE for text/image/table vectors), and Structural (Neo4j SPARQL) pathways.
+   - **Advanced Chunking**: Utilizing **Sliding Window + Embedding Clustering** to preserve semantic context boundaries.
+   - **Reranking**: Deep contextual re-ranking via ColBERT or MonoT5.
+
+3. **Knowledge Graph Reasoning (KG)**
+   - **Disambiguation**: Precision Entity Linking and NER mapping queries to graph nodes.
+   - **Multi-hop Traversal**: Symbolic + Neural graph traversal to unearth implicit relationships.
+   - **Factual Grounding**: Utilizing KG constraints to structurally suppress LLM hallucinations.
+
+4. **Controlled LLM Generation**
+   - Source-grounded QA (mandatory origin tracing for all outputs).
+   - Real-time consistency scoring and format alignment (Summaries, Tables, Decision Trees) via Streaming LLM.
 
 ## 🛠 Tech Stack Blueprint
 
-* **Application Framework**: FastAPI
-* **Orchestration**: LlamaIndex / LangChain
-* **Databases & Search**: 
-  * Relational & Vector: PostgreSQL + PGVector
-  * Graph: Neo4j
-  * Caching & State: Redis
-* **Embedding & Models**: BGE / E5 / OpenAI / Anthropic
-* **Infrastructure**: Docker, Docker Compose (Kubernetes for production)
+| Component | Selected Technology |
+| :--- | :--- |
+| **LLMs & Reasoning** | GPT-4, Claude 3, LLaMA/Mistral + PEFT/LoRA |
+| **Retrieval & Rerank** | FAISS, Elasticsearch, BM25, ColBERT |
+| **Vector Models** | BGE, E5, Contriever, OpenAI Embedding |
+| **Databases** | PostgreSQL + PGVector, Redis, Neo4j |
+| **Frameworks** | FastAPI, LlamaIndex, LangChain |
+| **Infrastructure** | Docker Compose (Local), Kubernetes (Production) |
 
 ## 📂 Project Structure
 
 \`\`\`bash
-├── api/                  # FastAPI endpoints, routers, and schemas
-├── core/                 # Configurations, security, and global variables
-├── ingestion/            # Pipelines for ETL, dynamic chunking, and KG construction
-├── retrieval/            # Hybrid search logic (Dense + Sparse + Graph)
-├── agent/                # LLM reasoning loops, tool-use, and response synthesis
-├── tests/                # Unit and integration test suites
-├── docker-compose.yml    # Local infrastructure provisioning
-├── requirements.txt      # Python dependencies
-└── main.py               # FastAPI application entry point
+├── api/                  # FastAPI endpoints, streaming routers, schemas
+├── core/                 # App configs, Context memory (Redis), auth
+├── ingestion/            # ETL pipelines, Sliding Window chunking, Multimodal parsers
+│   ├── chunking/         # Embedding clustering & metadata injection logic
+│   └── graph_build/      # NER, Entity linking, Neo4j population
+├── retrieval/            # Hybrid search coordinators
+│   ├── dense/            # Vector DB interfaces (PGVector/FAISS)
+│   ├── sparse/           # Keyword indexing
+│   └── reranker/         # ColBERT/MonoT5 integration
+├── agent/                # LLM reasoning loops, tool-use, CoT clarification
+├── tests/                # Unit/Integration test suites
+├── docker-compose.yml    # Local Core Infra (Postgres, Redis, Neo4j)
+├── requirements.txt      # Dependencies
+└── main.py               # Application entry point
 \`\`\`
 
 ## 🚀 Getting Started (Local Development)
@@ -43,7 +65,6 @@ Our architecture is designed for extreme reliability and factual grounding:
 * Git
 
 ### 2. Installation
-Clone the repository and install dependencies:
 \`\`\`bash
 git clone https://github.com/YourUsername/NovaSearch.git
 cd NovaSearch
@@ -52,24 +73,23 @@ source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 \`\`\`
 
-### 3. Environment Variables
-Copy the example environment file and add your credentials (API keys, DB passwords):
+### 3. Environment Setup
+Copy the configuration template and populate your API Keys (OpenAI, Anthropic) and DB credentials:
 \`\`\`bash
 cp .env.example .env
 \`\`\`
 
-### 4. Spin up Infrastructure
-Start the local databases (PostgreSQL/PGVector, Redis, Neo4j) using Docker:
+### 4. Spin up Core Infrastructure
+Start the local persistence layer (PostgreSQL w/ pgvector, Redis, Neo4j) via Docker:
 \`\`\`bash
 docker-compose up -d
 \`\`\`
 
-### 5. Run the Application
-Launch the FastAPI development server:
+### 5. Launch the Application
 \`\`\`bash
 uvicorn main:app --reload --host 0.0.0.0 --port 8000
 \`\`\`
-API documentation will be available at: `http://localhost:8000/docs`
+Interactive API documentation available at: `http://localhost:8000/docs`
 
-## 🔒 Security & Compliance
-This repository contains proprietary logic and architecture. Do not commit `.env` files, production database credentials, or sensitive customer data to version control.
+## 🔒 Security & Compliance Notice
+This repository contains proprietary enterprise architecture. Never commit `.env` files, production database credentials, or real customer datasets. All raw data must remain in the `.gitignore` excluded directories.
