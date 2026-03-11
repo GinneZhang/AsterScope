@@ -1,0 +1,11 @@
+numpy
+spacy
+scikit-learn
+sentence-transformers
+transformers
+fastapi
+uvicorn
+redis
+neo4j
+psycopg2-binary
+pgvector
