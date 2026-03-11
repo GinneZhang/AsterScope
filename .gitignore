@@ -1,32 +1,63 @@
 # ==========================================
 # NovaSearch Project .gitignore
+# Enterprise Copilot & Intelligent Retrieval
 # ==========================================
 
-# Environments & Secrets
+# ------------------------------------------
+# 1. Environments & Secrets (🚨 CRITICAL)
+# ------------------------------------------
 .env
 .env.*
 !.env.example
 secrets/
 config/credentials.json
+*.pem
+*.key
 
-# Local Data & Vector/Graph Databases
+# ------------------------------------------
+# 2. Local Databases & Indexes (Prevent Repo Bloat)
+# ------------------------------------------
+# Vector DB & Embeddings
 data/
 datasets/
 local_db/
 chroma_db/
 qdrant_storage/
+*.faiss
+*.index
+*.vec
+
+# Relational & Graph DB Data
 neo4j_data/
+neo4j_logs/
+postgres_data/
+pg_data/
+redis_data/
+dump.rdb
 *.sqlite3
 *.db
 
-# Python & Build Artifacts
+# ------------------------------------------
+# 3. LLM & Model Caches
+# ------------------------------------------
+.cache/
+.huggingface/
+.chroma/
+models/
+lora_weights/
+*.safetensors
+*.bin
+*.pt
+
+# ------------------------------------------
+# 4. Python & Build Artifacts
+# ------------------------------------------
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
 build/
-develop-eggs/
 dist/
 downloads/
 eggs/
@@ -41,7 +72,9 @@ wheels/
 .installed.cfg
 *.egg
 
-# Virtual Environments
+# ------------------------------------------
+# 5. Virtual Environments
+# ------------------------------------------
 venv/
 .venv/
 env/
@@ -49,19 +82,25 @@ env/
 pip-log.txt
 pip-delete-this-directory.txt
 
-# Testing, Profiling & Logs
+# ------------------------------------------
+# 6. Testing, Linting, Profiling & Logs
+# ------------------------------------------
 .tox/
 .coverage
 .coverage.*
-.cache
 nosetests.xml
 coverage.xml
 *.cover
 *.log
+logs/
 htmlcov/
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
-# IDE & OS Files
+# ------------------------------------------
+# 7. IDE & OS Files
+# ------------------------------------------
 .vscode/
 .idea/
 *.swp
@@ -74,5 +113,8 @@ htmlcov/
 ehthumbs.db
 Thumbs.db
 
-# Jupyter Notebooks
+# ------------------------------------------
+# 8. Notebooks (Exploratory Data Analysis)
+# ------------------------------------------
 .ipynb_checkpoints/
+*.ipynb
