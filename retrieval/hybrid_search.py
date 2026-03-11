@@ -25,8 +25,10 @@ from neo4j import GraphDatabase
 from retrieval.dense.vector_search import PGVectorDenseRetriever
 from retrieval.dense.faiss_search import FAISSDenseRetriever
 from retrieval.sparse.keyword_search import PostgresFTSSparseRetriever
+from retrieval.sparse.elastic_search import ElasticSparseRetriever
 from retrieval.reranker.rrf_fusion import reciprocal_rank_fusion
 from retrieval.reranker.cross_encoder import CrossEncoderReranker
+from retrieval.reranker.colbert_reranker import ColBERTReranker
 
 logger = logging.getLogger(__name__)
 
@@ -71,8 +73,21 @@ class HybridSearchCoordinator:
             logger.info("Initializing PGVector remote vector store...")
             self.dense_retriever = PGVectorDenseRetriever(self.pg_conn, embedding_model_name)
             
-        self.sparse_retriever = PostgresFTSSparseRetriever(self.pg_conn)
-        self.cross_encoder = CrossEncoderReranker()
+        sparse_store = os.getenv("SPARSE_STORE_TYPE", "fts").lower()
+        if sparse_store == "elastic":
+            logger.info("Initializing Elasticsearch sparse store...")
+            self.sparse_retriever = ElasticSparseRetriever()
+        else:
+            logger.info("Initializing Postgres FTS sparse store...")
+            self.sparse_retriever = PostgresFTSSparseRetriever(self.pg_conn)
+            
+        reranker_type = os.getenv("RERANKER_TYPE", "crossencoder").lower()
+        if reranker_type == "colbert":
+            logger.info("Initializing ColBERT Reranker...")
+            self.cross_encoder = ColBERTReranker()
+        else:
+            logger.info("Initializing CrossEncoder Reranker...")
+            self.cross_encoder = CrossEncoderReranker()
 
         # 3. Setup Neo4j (Graph Retrieval)
         self.neo4j_uri = neo4j_uri or os.getenv("NEO4J_URI", "bolt://localhost:7687")

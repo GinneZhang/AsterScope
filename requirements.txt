@@ -17,3 +17,7 @@ anthropic
 faiss-cpu
 langchain
 langchain-openai
+elasticsearch
+ragatouille
+pytesseract
+Pillow
