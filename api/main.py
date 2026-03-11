@@ -74,7 +74,7 @@ async def health_check():
 
 
 @app.post("/ask")
-async def ask_copilot(request: QueryRequest):
+def ask_copilot(request: QueryRequest):
     """
     Main endpoint for the Enterprise Copilot.
     Takes a natural language query, performs Tri-Engine Retrieval,
@@ -86,8 +86,7 @@ async def ask_copilot(request: QueryRequest):
     session_id = request.session_id or str(uuid.uuid4())
     logger.info("Handling /ask request for query: '%s', session: '%s'", request.query, session_id)
 
-    async def generate_thought_and_answer():
-        # 1. Yield Initial Status/Thought
+    def generate_stream():
         yield json.dumps({
             "type": "thought", 
             "content": "Analyzing query and establishing Tri-Engine retrieval context...", 
@@ -95,45 +94,28 @@ async def ask_copilot(request: QueryRequest):
         }) + "\n"
         
         try:
-            # 2. Offload the heavy chunk (Retrieval + OpenAI generation) to a thread
-            # In a full streaming implementation, we would pass an async callback to the 
-            # agent to yield semantic chunks as they arrive from OpenAI. 
-            # For Phase 3, we yield the execution plan (Thought) then the final result block.
-            result = await asyncio.to_thread(
-                copilot_agent.generate_response,
+            for chunk in copilot_agent.generate_response( 
                 query=request.query, 
                 session_id=session_id, 
                 top_k=request.top_k
-            )
-            
-            answer = result.get("answer", "No answer generated.")
-            raw_sources = result.get("source_chunks", [])
-            
-            # Yield metadata about retrieval
-            if raw_sources:
-                 yield json.dumps({
-                     "type": "thought",
-                     "content": f"Successfully retrieved {len(raw_sources)} grounded chunks from Enterprise Knowledge Graph.",
-                     "session_id": session_id
-                 }) + "\n"
-            
-            # Serialize sources
-            sources_schema = []
-            for s in raw_sources:
-                sources_schema.append({
-                    "doc_id": s.get("doc_id", "unknown"),
-                    "chunk_text": s.get("chunk_text", ""),
-                    "score": s.get("cross_encoder_score", s.get("score", 0.0))
-                })
-
-            # 3. Yield the final Answer
-            yield json.dumps({
-                "type": "answer",
-                "content": answer,
-                "session_id": session_id,
-                "sources": sources_schema
-            }) + "\n"
-            
+            ):
+                if chunk.get("type") == "answer_metadata":
+                    sources_schema = []
+                    for s in chunk.get("sources", []):
+                        sources_schema.append({
+                            "doc_id": s.get("doc_id", "unknown"),
+                            "chunk_text": s.get("chunk_text", ""),
+                            "score": s.get("cross_encoder_score", s.get("score", 0.0))
+                        })
+                    yield json.dumps({
+                        "type": "metadata",
+                        "sources": sources_schema,
+                        "session_id": chunk.get("session_id"),
+                        "consistency_score": chunk.get("consistency_score"),
+                        "hallucination_warning": chunk.get("hallucination_warning")
+                    }) + "\n"
+                else:
+                    yield json.dumps(chunk) + "\n"
         except Exception as e:
             logger.error("Error processing /ask request: %s", str(e))
             yield json.dumps({
@@ -142,7 +124,7 @@ async def ask_copilot(request: QueryRequest):
                 "session_id": session_id
             }) + "\n"
 
-    return StreamingResponse(generate_thought_and_answer(), media_type="application/x-ndjson")
+    return StreamingResponse(generate_stream(), media_type="application/x-ndjson")
 
 
 def _insert_chunks_to_postgres(doc_id: str, title: str, section: str, chunks: list):

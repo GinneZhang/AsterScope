@@ -167,9 +167,10 @@ If the user greets you or asks about your capabilities, you may respond naturall
             logger.warning("Query rewriting failed, using original: %s", str(e))
             return query
 
-    def generate_response(self, query: str, session_id: Optional[str] = None, top_k: int = 5) -> Dict[str, Any]:
+    def generate_response(self, query: str, session_id: Optional[str] = None, top_k: int = 5):
         """
-        Main reasoning loop: Retrieve context, inject session history, build prompt, stream/generate text.
+        Main reasoning loop: Retrieve context, inject session history, build prompt, stream text natively.
+        Yields dictionaries with 'type' indicating 'thought', 'token', 'error', or 'answer_metadata'.
         """
         logger.info("Agent processing query: '%s'", query)
         
@@ -182,26 +183,31 @@ If the user greets you or asks about your capabilities, you may respond naturall
         logger.info("Intent Classified as: %s", intent)
         
         if intent == "CLARIFICATION":
-            # Bypass RAG entirely, just chat
+            yield {"type": "thought", "content": "Recognized intent as clarification. Bypassing search."}
             graph_expanded_hits = []
             context_str = "No enterprise context needed for clarification."
             search_query = query
         else:
-            # 3. Phase 1: Query Rewriting
+            yield {"type": "thought", "content": "Recognized intent as enterprise search."}
             search_query = self._rewrite_query(query, chat_history)
+            if search_query != query:
+                yield {"type": "thought", "content": f"Query rewritten to: '{search_query}'"}
             
-            # 4. Phase 2: Retrieve Grounded Context (using the rewritten standalone query)
             graph_expanded_hits = self.retriever.search(search_query, top_k=top_k)
             
             if not graph_expanded_hits:
-                return {
-                    "answer": "I could not find any relevant enterprise knowledge to safely answer your query.",
-                    "source_chunks": [],
-                    "formatted_context_used": "",
-                    "session_id": sid
+                yield {"type": "thought", "content": "No relevant context found in enterprise knowledge."}
+                yield {"type": "token", "content": "I could not find any relevant enterprise knowledge to safely answer your query."}
+                yield {
+                    "type": "answer_metadata",
+                    "sources": [],
+                    "session_id": sid,
+                    "consistency_score": 1.0,
+                    "hallucination_warning": False
                 }
+                return
                 
-            # 5. Format Context Block
+            yield {"type": "thought", "content": f"Successfully retrieved {len(graph_expanded_hits)} grounded chunks from Enterprise Knowledge Graph."}
             context_str = self._format_context(graph_expanded_hits)
         
         # 6. Build LLM Messages payload
@@ -220,38 +226,41 @@ If the user greets you or asks about your capabilities, you may respond naturall
         messages.append({"role": "user", "content": final_user_content})
         
         try:
-            logger.info("Executing OpenAI generation (Model: %s)...", self.model)
+            logger.info("Executing OpenAI generation (Model: %s) with stream=True...", self.model)
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=messages, # type: ignore
                 temperature=0.0,
-                max_tokens=1024
+                max_tokens=1024,
+                stream=True
             )
             
-            raw_output = response.choices[0].message.content or "No response generated."
-            
-            # Simple heuristic strictly for demo: extract thought if it exists
-            thought = ""
-            final_answer = raw_output
+            final_answer = ""
+            for chunk in response:
+                if not getattr(chunk, "choices", None) or len(chunk.choices) == 0:
+                     continue
+                delta = chunk.choices[0].delta
+                if getattr(delta, "content", None):
+                    token = delta.content
+                    final_answer += token
+                    yield {"type": "token", "content": token}
             
             # 6. Save new turn to Semantic Memory asynchronously (Threadpool handled by FastAPI)
             self.memory.add_message(sid, "user", query)
             self.memory.add_message(sid, "assistant", final_answer)
             
-            return {
-                "thought": thought,
-                "answer": final_answer,
-                "source_chunks": graph_expanded_hits,
-                "formatted_context_used": context_str,
-                "session_id": sid
+            # Run Real-time Consistency Evaluation
+            from agent.consistency import ConsistencyEvaluator
+            evaluator = ConsistencyEvaluator(self.client)
+            eval_result = evaluator.evaluate(final_answer, context_str)
+            
+            yield {
+                "type": "answer_metadata",
+                "sources": graph_expanded_hits,
+                "session_id": sid,
+                "consistency_score": eval_result["consistency_score"],
+                "hallucination_warning": eval_result["hallucination_warning"]
             }
         except Exception as e:
             logger.error("LLM Generation failed: %s", str(e))
-            # Safe Fallback
-            return {
-                "thought": "",
-                "answer": f"Error during response generation: {str(e)}",
-                "source_chunks": graph_expanded_hits,
-                "formatted_context_used": context_str,
-                "session_id": sid
-            }
+            yield {"type": "error", "content": f"Error during response generation: {str(e)}"}

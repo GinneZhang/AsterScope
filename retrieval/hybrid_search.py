@@ -121,8 +121,7 @@ class HybridSearchCoordinator:
         entities = self._extract_entities(query)
         if entities:
             logger.info("NER detected entities for Graph Pathing: %s", entities)
-            # In a full implementation, we would execute an Entity-Resolution cypher here
-            # e.g., MATCH (e:Entity)-[:MENTIONED_IN]->(c:Chunk) WHERE e.name IN $entities...
+            # The cypher handles entity matching efficiently directly parameterized
         
         with self.neo4j_driver.session() as session:
             for hit in base_hits:
@@ -133,22 +132,28 @@ class HybridSearchCoordinator:
                 MATCH (d:Document {id: $doc_id})-[:HAS_CHUNK]->(c:Chunk {index: $idx})
                 OPTIONAL MATCH (d)-[:HAS_CHUNK]->(prev:Chunk {index: $idx - 1})
                 OPTIONAL MATCH (d)-[:HAS_CHUNK]->(next:Chunk {index: $idx + 1})
+                OPTIONAL MATCH (c)-[:MENTIONS]->(e:Entity)<-[:MENTIONS]-(cross:Chunk)
+                WHERE e.name IN $entities AND cross.id <> c.id
                 RETURN 
                     d.title AS doc_title,
                     d.section AS doc_section,
                     c.chunk_text AS exact_hit_text,
                     prev.chunk_text AS prev_context,
-                    next.chunk_text AS next_context
+                    next.chunk_text AS next_context,
+                    collect(DISTINCT e.name) AS shared_entities,
+                    collect(DISTINCT cross.chunk_text)[0..2] AS cross_document_texts
                 """
                 
                 try:
-                    result = session.run(cypher, doc_id=doc_id, idx=idx).single()
+                    result = session.run(cypher, doc_id=doc_id, idx=idx, entities=entities).single()
                     if result:
                         graph_context = {
                             "doc_title": result["doc_title"],
                             "doc_section": result["doc_section"],
                             "prev_context": result["prev_context"],
-                            "next_context": result["next_context"]
+                            "next_context": result["next_context"],
+                            "shared_entities": result["shared_entities"],
+                            "cross_document_texts": result["cross_document_texts"]
                         }
                         enriched_hit = {**hit, "graph_context": graph_context}
                         enriched_hits.append(enriched_hit)
