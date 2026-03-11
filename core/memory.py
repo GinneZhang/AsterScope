@@ -1,11 +1,10 @@
 """
 Redis Session Memory Manager for NovaSearch.
 """
-
 import os
 import json
 import logging
-from typing import List, Dict, Any
+from typing import List, Dict
 
 try:
     from dotenv import load_dotenv
@@ -63,7 +62,6 @@ class RedisMemoryManager:
     def get_history(self, session_id: str, max_turns: int = 5) -> List[Dict[str, str]]:
         """
         Retrieves the last N turns of the conversation history.
-        Note: A 'turn' comprises a User message and an Assistant reply, so we fetch max_turns * 2.
         """
         if not self.client:
             return []
@@ -72,7 +70,6 @@ class RedisMemoryManager:
         fetch_count = max_turns * 2
         
         try:
-            # LRANGE is zero-indexed, negative indices count from the end
             # We want the LAST fetch_count items
             raw_history = self.client.lrange(key, -fetch_count, -1)
             history = [json.loads(msg) for msg in raw_history]

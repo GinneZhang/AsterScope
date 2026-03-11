@@ -1,3 +1,6 @@
+"""
+Task Decomposer using LangChain to break down complex queries.
+"""
 import os
 import logging
 from typing import List
@@ -22,7 +25,7 @@ class TaskDecomposer:
         
         try:
             if not self.openai_api_key:
-                logger.warning("OPENAI_API_KEY missing. TaskDecomposer will fail.")
+                logger.warning("OPENAI_API_KEY missing. TaskDecomposer will bypass execution.")
                 self.llm = None
             else:
                 self.llm = ChatOpenAI(temperature=0.0, model=model_name, api_key=self.openai_api_key) # type: ignore
@@ -30,38 +33,33 @@ class TaskDecomposer:
             logger.error(f"Failed to initialize LangChain ChatOpenAI: {e}")
             self.llm = None
 
-        self.prompt = ChatPromptTemplate.from_messages([
-            ("system", """You are an expert query analyzer for an enterprise search system.
-Your task is to take a complex user query and decompose it into 2-3 atomic, standalone sub-queries.
-If the query is already simple and atomic, just return the original query.
-Output EXACTLY one sub-query per line. Do not number them or use bullet points. Do not add conversational text.
-
-Example 1:
-User: Compare the blackout periods for SVPs and regular employees
-Output:
-What is the blackout period for SVPs?
-What is the blackout period for regular employees?
-
-Example 2:
-User: What is the PTO policy?
-Output:
-What is the PTO policy?"""),
-            ("user", "{query}")
-        ])
-        
         if self.llm:
+            self.prompt = ChatPromptTemplate.from_messages([
+                ("system", 
+                "You are an expert query analyzer for an enterprise search system.\n"
+                "Your task is to take a complex user query and decompose it into 2-3 atomic, standalone sub-queries.\n"
+                "If the query is already simple and atomic, just return the original query.\n"
+                "Output EXACTLY one sub-query per line. Do not number them or use bullet points.\n\n"
+                "Example 1:\n"
+                "User: Compare blackout periods for SVPs and regular employees\n"
+                "Output:\n"
+                "What is the blackout period for SVPs?\n"
+                "What is the blackout period for regular employees?"),
+                ("user", "{query}")
+            ])
             self.chain = self.prompt | self.llm | StrOutputParser()
+        else:
+            self.chain = None
 
     def decompose(self, query: str) -> List[str]:
-        """Decomposes a query into multiple sub-queries."""
-        if not self.llm:
+        """Decomposes a query into atomic sub-queries using LangChain."""
+        if not self.chain:
             return [query]
             
         try:
             logger.info(f"Decomposing query using LangChain: '{query}'")
             output = self.chain.invoke({"query": query})
             
-            # Parse lines, stripping whitespace and removing empty lines
             sub_queries = [line.strip() for line in output.split("\n") if line.strip()] # type: ignore
             
             if not sub_queries:

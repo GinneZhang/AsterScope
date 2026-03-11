@@ -4,15 +4,16 @@ Requires local Docker infrastructure to be running (PostgreSQL, Redis, Neo4j).
 """
 
 import os
+import json
 import pytest
 from fastapi.testclient import TestClient
 
 # Must set before importing main to ensure safe DB connections
-os.environ["DATABASE_URL"] = "dbname=novasearch user=postgres password=postgres_secure_password host=localhost port=5432"
+os.environ["DATABASE_URL"] = "dbname=novasearch user=postgres password=postgres host=localhost port=5432"
 os.environ["NEO4J_URI"] = "bolt://localhost:7687"
-
-# We bypass the actual OpenAI call using a mock if we don't have a real key, 
-# but for true E2E, we assume a valid OPENAI_API_KEY is present in the local .env
+os.environ["NEO4J_USER"] = "neo4j"
+os.environ["NEO4J_PASSWORD"] = "password"
+os.environ["REDIS_HOST"] = "localhost"
 
 from api.main import app
 
@@ -35,7 +36,6 @@ def setup_environment():
     Trigger the lifespan event manually for TestClient to bootstrap DBs.
     FastAPI TestClient doesn't fire lifespan events automatically in older versions,
     but with TestClient(app) in newer versions, it handles it. 
-    We just log here for verbosity.
     """
     import logging
     logging.info("Starting E2E Test Suite...")
@@ -61,7 +61,6 @@ def test_ingestion():
         "section": MOCK_SECTION
     }
     
-    # We use TestClient with the lifespan context manager implicitly via client request
     with TestClient(app) as live_client:
         response = live_client.post("/ingest", json=payload)
         
@@ -75,7 +74,7 @@ def test_retrieval_and_agent():
     """
     Test 2: POST /ask
     Verifies Tri-Engine Fusion retrieves the previously ingested chunk and 
-    the Agent formats the answer with the [Source Marker].
+    the Agent formats the streaming answer with proper NDJSON chunks and source markers.
     """
     query_payload = {
         "query": "What happens if I violate the insider trading policy, and who approves exceptions?",
@@ -83,15 +82,14 @@ def test_retrieval_and_agent():
     }
     
     with TestClient(app) as live_client:
-        # Give DBs a fraction of a second to sync (though PG/Neo4j are immediate)
+        # Give DBs a fraction of a second to sync
         import time
         time.sleep(1)
-        
-        import json
         
         with live_client.stream("POST", "/ask", json=query_payload) as response:
             assert response.status_code == 200, f"Ask failed: {response.text}"
             
+            thoughts = []
             answer = ""
             sources = []
             
@@ -99,18 +97,25 @@ def test_retrieval_and_agent():
                 if line:
                     try:
                         data = json.loads(line)
-                        if data.get("type") == "token":
+                        chunk_type = data.get("type")
+                        
+                        if chunk_type == "thought":
+                            thoughts.append(data.get("content", ""))
+                        elif chunk_type == "token":
                             answer += data.get("content", "")
-                        elif data.get("type") == "answer_metadata":
+                        elif chunk_type == "answer_metadata":
                             sources = data.get("sources", [])
                     except json.JSONDecodeError:
                         pass
-                        
-            # 1. Verify Answer exists
-            assert len(answer) > 10, "LLM returned an empty or abnormally short answer."
             
-            # 2. Verify Tri-Engine retrieved the correct source
-            assert len(sources) > 0, "No sources were retrieved by HybridSearchCoordinator."
+            # 1. Verify Thoughts were emitted
+            assert len(thoughts) > 0, "No thoughts were emitted in the streaming response."
+            
+            # 2. Verify Answer exists and accumulated via tokens
+            assert len(answer) > 10, "LLM returned an empty or abnormally short string."
+            
+            # 3. Verify Tri-Engine retrieved the correct source
+            assert len(sources) > 0, "No sources were returned in answer_metadata."
             
             # Check if our mock document is in the returned sources
             mock_source_found = False
@@ -122,6 +127,6 @@ def test_retrieval_and_agent():
                     
             assert mock_source_found, "The ingested mock document was not found by the retrieval engine."
             
-            # 3. Verify Source Grounding (Anti-Hallucination)
+            # 4. Verify Source Grounding (Anti-Hallucination)
             expected_marker = f"[Doc: {MOCK_TITLE}, Section: {MOCK_SECTION}]"
             assert expected_marker in answer, f"LLM failed to inject the required source marker. Expected '{expected_marker}' somewhere in the output. Got: {answer}"
