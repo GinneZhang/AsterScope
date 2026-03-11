@@ -12,5 +12,4 @@ neo4j
 redis
 pgvector
 openai
-python-dotenv
-pydantic
+httpx
