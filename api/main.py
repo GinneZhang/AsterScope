@@ -71,11 +71,12 @@ async def health_check():
 
 
 @app.post("/ask", response_model=QueryResponse)
-async def ask_copilot(request: QueryRequest):
+def ask_copilot(request: QueryRequest):
     """
     Main endpoint for the Enterprise Copilot.
     Takes a natural language query, performs Tri-Engine Retrieval,
     and returns a grounded, hallucination-free response.
+    Uses standard `def` to offload blocking LLM/DB execution to the threadpool.
     """
     if not copilot_agent:
         raise HTTPException(status_code=503, detail="Copilot Agent is not initialized due to missing configurations.")
@@ -153,10 +154,12 @@ def _insert_chunks_to_postgres(doc_id: str, title: str, section: str, chunks: li
 
 
 @app.post("/ingest")
-async def ingest_document(request: DocumentUploadRequest):
+def ingest_document(request: DocumentUploadRequest):
     """
     Ingests a new document into the system.
     Runs text through SemanticChunker, saves to PGVector, and builds Knowledge Graph.
+    Uses standard `def` (instead of `async def`) to safely offload heavy synchronous 
+    CPU bounds (SentenceTransformers) and blocking DB I/O to FastAPI's threadpool.
     """
     if not chunker or not kg_builder:
         raise HTTPException(status_code=503, detail="Ingestion services unavailable.")
@@ -169,7 +172,7 @@ async def ingest_document(request: DocumentUploadRequest):
     }
     
     try:
-        # 1. Chunk Document
+        # 1. Chunk Document (Heavy CPU)
         logger.info("Chunking document: %s", request.title)
         chunks = chunker.chunk_document(request.document_text, metadata)
         
@@ -177,14 +180,23 @@ async def ingest_document(request: DocumentUploadRequest):
         for idx, c in enumerate(chunks):
             c["chunk_metadata"]["sequence_index"] = idx
 
-        # 2. Persist to Postgres (Dense Vectors)
-        logger.info("Persisting %d chunks to PostgreSQL...", len(chunks))
-        _insert_chunks_to_postgres(doc_id, request.title, request.section, chunks)
+        # Dual-Write Consistency Block
+        try:
+            # 2. Persist to Postgres (Dense Vectors)
+            logger.info("Persisting %d chunks to PostgreSQL...", len(chunks))
+            _insert_chunks_to_postgres(doc_id, request.title, request.section, chunks)
 
-        # 3. Persist to Neo4j (Knowledge Graph Construction)
-        logger.info("Building Knowledge Graph for document...")
-        kg_builder.build_graph(chunks)
+            # 3. Persist to Neo4j (Knowledge Graph Construction)
+            logger.info("Building Knowledge Graph for document...")
+            kg_builder.build_graph(chunks)
+            
+        except Exception as db_err:
+            # If Graph fails, we log an alert (a robust system would execute a PG rollback query here)
+            logger.error("CRITICAL: Dual-Write failure for Doc %s. Partial ingestion may have occurred: %s", doc_id, str(db_err))
+            raise HTTPException(status_code=500, detail=f"Database consistency failure: {str(db_err)}")
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error("Ingestion failed: %s", str(e))
         raise HTTPException(status_code=500, detail=f"Ingestion pipeline failed: {str(e)}")
