@@ -81,5 +81,4 @@ docker-compose up -d
 ### 5. Launch the Application
 uvicorn main:app --reload --host 0.0.0.0 --port 8000
 Interactive API documentation available at: http://localhost:8000/doc.
-<img width="5256" height="920" alt="diagram" src="https://github.com/user-attachments/assets/0e348d2a-9db7-4441-af20-08af76928525" />
 
