@@ -64,13 +64,14 @@ Our pipeline is designed for extreme reliability, logical reasoning, and factual
 * Git
 
 ### 2. Installation
-\`\`\`bash
+
+```bash
 git clone https://github.com/YourUsername/NovaSearch.git
 cd NovaSearch
 python -m venv .venv
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-\`\`\`
+
 
 ### 3. Environment Setup
 Copy the configuration template and populate your API Keys (OpenAI, Anthropic) and DB credentials:
