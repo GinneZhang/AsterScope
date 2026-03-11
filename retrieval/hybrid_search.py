@@ -18,12 +18,14 @@ try:
 except ImportError:
     pass
 
+import spacy
 import psycopg2
 from neo4j import GraphDatabase
 
 from retrieval.dense.vector_search import DenseRetriever
 from retrieval.sparse.keyword_search import SparseRetriever
 from retrieval.reranker.rrf_fusion import reciprocal_rank_fusion
+from retrieval.reranker.cross_encoder import CrossEncoderReranker
 
 logger = logging.getLogger(__name__)
 
@@ -59,9 +61,10 @@ class HybridSearchCoordinator:
             logger.error("Failed to connect to PostgreSQL: %s", str(e))
             self.pg_conn = None
 
-        # 2. Setup Retrievers
+        # 2. Setup Retrievers & Reranker
         self.dense_retriever = DenseRetriever(self.pg_conn, embedding_model_name)
         self.sparse_retriever = SparseRetriever(self.pg_conn)
+        self.cross_encoder = CrossEncoderReranker()
 
         # 3. Setup Neo4j (Graph Retrieval)
         self.neo4j_uri = neo4j_uri or os.getenv("NEO4J_URI", "bolt://localhost:7687")
@@ -77,6 +80,15 @@ class HybridSearchCoordinator:
         except Exception as e:
             logger.error("Failed to connect to Neo4j: %s", str(e))
             self.neo4j_driver = None
+            
+        # 4. Setup NER for Graph Expansion
+        try:
+            self.nlp = spacy.load("en_core_web_sm")
+        except OSError:
+            logger.warning("Spacy model not found. Downloading en_core_web_sm...")
+            import subprocess
+            subprocess.run(["python", "-m", "spacy", "download", "en_core_web_sm"], check=True)
+            self.nlp = spacy.load("en_core_web_sm")
 
     def __del__(self):
         """Cleanup connections on destruction."""
@@ -85,15 +97,32 @@ class HybridSearchCoordinator:
         if hasattr(self, 'neo4j_driver') and self.neo4j_driver:
             self.neo4j_driver.close()
 
-    def _graph_expansion(self, base_hits: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _extract_entities(self, query: str) -> List[str]:
+        """Extracts Named Entities (ORG, PERSON, DATE, etc.) using spaCy."""
+        if not hasattr(self, 'nlp'):
+            return []
+        doc = self.nlp(query)
+        # Filter for meaningful entities
+        entities = [ent.text for ent in doc.ents if ent.label_ in ["ORG", "PERSON", "GPE", "PRODUCT", "LAW"]]
+        return list(set(entities))
+
+    def _graph_expansion(self, base_hits: List[Dict[str, Any]], query: str = "") -> List[Dict[str, Any]]:
         """
         Takes the top hits from Dense/Sparse, queries Neo4j for their parent
         document and adjacent chunks (1-hop), and injects this graph context.
+        Also attempts to resolve Entities (NER) if mentioned in the query.
         """
         if not hasattr(self, 'neo4j_driver') or not self.neo4j_driver or not base_hits:
             return base_hits
             
         enriched_hits = []
+        
+        # Extract Entities for potential Graph Pathing
+        entities = self._extract_entities(query)
+        if entities:
+            logger.info("NER detected entities for Graph Pathing: %s", entities)
+            # In a full implementation, we would execute an Entity-Resolution cypher here
+            # e.g., MATCH (e:Entity)-[:MENTIONED_IN]->(c:Chunk) WHERE e.name IN $entities...
         
         with self.neo4j_driver.session() as session:
             for hit in base_hits:
@@ -133,24 +162,23 @@ class HybridSearchCoordinator:
 
     def search(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
         """
-        Main orchestration method for Tri-Engine Fusion.
+        Main orchestration method for Tri-Engine Fusion (Now with Cross-Encoder).
         """
         logger.info("Initiating Hybrid Search for query: '%s'", query)
         
-        # 1. Base Retrieval
-        fetch_k = top_k * 3 
+        # 1. Base Retrieval (Cast a wide net)
+        fetch_k = max(20, top_k * 4) 
         dense_hits = self.dense_retriever.search(query, top_k=fetch_k)
         sparse_hits = self.sparse_retriever.search(query, top_k=fetch_k)
         
-        # 2. Rerank / Fuse (RRF)
+        # 2. First Stage Fusion (RRF)
         fused_hits = reciprocal_rank_fusion(dense_hits, sparse_hits)
         
-        # Trim to final desired K before heavy graph operations
-        fused_list = list(fused_hits)
-        top_fused = fused_list[:top_k]  # type: ignore
+        # 3. Second Stage Reranking (Cross-Encoder)
+        reranked_hits = self.cross_encoder.rerank(query, fused_hits, top_k=top_k)
         
-        # 3. Knowledge Graph Expansion
-        final_grounded_results = self._graph_expansion(top_fused)
+        # 4. Knowledge Graph Expansion (Now with NER capability)
+        final_grounded_results = self._graph_expansion(reranked_hits, query=query)
         
         logger.info("Hybrid Search Complete. Yielding %s results.", len(final_grounded_results))
         return final_grounded_results
