@@ -22,6 +22,7 @@ import openai
 # Assuming hybrid_search is in the project's Python path
 from retrieval.hybrid_search import HybridSearchCoordinator
 from core.memory import RedisMemoryManager
+from agent.planner import TaskDecomposer
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +58,9 @@ class EnterpriseCopilotAgent:
         
         # Instantiate Semantic Memory
         self.memory = RedisMemoryManager()
+        
+        # Instantiate LangChain Task Planner
+        self.planner = TaskDecomposer(model_name="gpt-3.5-turbo")
 
     def _format_context(self, hits: List[Dict[str, Any]]) -> str:
         """
@@ -224,8 +228,27 @@ If the user greets you or asks about your capabilities, you may respond naturall
             search_query = self._rewrite_query(query, chat_history)
             if search_query != query:
                 yield {"type": "thought", "content": f"Query rewritten to: '{search_query}'"}
+                
+            # Use LangChain to Decompose Complex Queries
+            sub_queries = self.planner.decompose(search_query)
+            if len(sub_queries) > 1:
+                yield {"type": "thought", "content": f"Task decomposed into {len(sub_queries)} sub-queries: {sub_queries}"}
             
-            graph_expanded_hits = self.retriever.search(search_query, top_k=top_k)
+            # Aggregate Hybrid Results from Sub-Queries
+            all_hits = []
+            seen_chunk_ids = set()
+            
+            for sq in sub_queries:
+                sq_hits = self.retriever.search(sq, top_k=top_k)
+                for hit in sq_hits:
+                    unique_id = f"{hit.get('doc_id')}_{hit.get('chunk_index')}"
+                    if unique_id not in seen_chunk_ids:
+                        all_hits.append(hit)
+                        seen_chunk_ids.add(unique_id)
+            
+            # Sort final pool by RRF score descending
+            all_hits.sort(key=lambda x: x.get("cross_encoder_score", x.get("score", 0.0)), reverse=True)
+            graph_expanded_hits = all_hits[:top_k * 2] # Keep a larger context pool since we have sub-queries
             
             if not graph_expanded_hits:
                 yield {"type": "thought", "content": "No relevant context found in enterprise knowledge."}

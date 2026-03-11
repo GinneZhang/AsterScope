@@ -21,6 +21,11 @@ try:
 except ImportError:
     raise ImportError("Please install neo4j python driver: pip install neo4j")
 
+try:
+    import spacy
+except ImportError:
+    pass
+
 logger = logging.getLogger(__name__)
 
 class KGBuilder:
@@ -46,6 +51,13 @@ class KGBuilder:
         except Exception as e:
             logger.error("Failed to connect to Neo4j: %s", str(e))
             self.driver = None
+            
+        try:
+            self.nlp = spacy.load("en_core_web_sm")
+            logger.info("Successfully loaded spaCy en_core_web_sm for NER.")
+        except Exception as e:
+            logger.warning(f"Failed to load spaCy model for NER (Neo4j). Entities will be skipped: {e}")
+            self.nlp = None
 
     def close(self):
         """Closes the driver connection."""
@@ -69,9 +81,33 @@ class KGBuilder:
             return
 
         with self.driver.session() as session:
+            # First, process text with spaCy to extract entities
+            processed_chunks = []
+            for chunk in chunks:
+                chunk_copy = dict(chunk)
+                entities = []
+                if self.nlp and chunk_copy.get("chunk_text"):
+                    doc = self.nlp(chunk_copy["chunk_text"])
+                    # Valid Neo4j property types must be primitives (no nested quotes)
+                    entities = [{"name": ent.text.strip(), "type": ent.label_} for ent in doc.ents if ent.label_ in {"PERSON", "ORG", "GPE", "LOC", "PRODUCT", "EVENT"}]
+                    
+                    # Deduplicate entities for the same chunk
+                    seen = set()
+                    unique_entities = []
+                    for e in entities:
+                        # Normalize a bit
+                        normalized_name = e["name"].lower()
+                        if normalized_name not in seen and len(normalized_name) > 1:
+                            seen.add(normalized_name)
+                            unique_entities.append(e)
+                    entities = unique_entities
+                    
+                chunk_copy["entities"] = entities
+                processed_chunks.append(chunk_copy)
+                
             # We process chunks in a single transaction for efficiency and atomicity.
-            session.execute_write(self._merge_chunks_tx, chunks)
-            logger.info(f"Successfully ingested {len(chunks)} chunks into Knowledge Graph.")
+            session.execute_write(self._merge_chunks_tx, processed_chunks)
+            logger.info(f"Successfully ingested {len(processed_chunks)} chunks with entities into Knowledge Graph.")
 
     @staticmethod
     def _merge_chunks_tx(tx, chunks: List[Dict[str, Any]]):
@@ -109,6 +145,15 @@ class KGBuilder:
             
         // 3. Create or MERGE Relationship
         MERGE (d)-[r:HAS_CHUNK {sequence_index: meta.sequence_index}]->(c)
+        
+        // 4. Extract Entities
+        WITH c, chunk_data.entities AS entities
+        UNWIND (CASE WHEN entities IS NULL THEN [] ELSE entities END) AS ent
+        
+        // 5. MERGE Entity Nodes and Relationships
+        MERGE (e:Entity {name: ent.name})
+        ON CREATE SET e.type = ent.type
+        MERGE (c)-[:MENTIONS]->(e)
         """
         
         # We need to make sure sequence_index is assigned
@@ -128,6 +173,7 @@ class KGBuilder:
             processed_chunks.append({
                 "chunk_text": chunk_copy.get("chunk_text", ""),
                 "token_count": chunk_copy.get("token_count", 0),
+                "entities": chunk_copy.get("entities", []),
                 "chunk_metadata": {
                     "doc_id": meta.get("doc_id", "Unknown"),
                     "title": meta.get("title", ""),

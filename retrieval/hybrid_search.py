@@ -23,6 +23,7 @@ import psycopg2
 from neo4j import GraphDatabase
 
 from retrieval.dense.vector_search import PGVectorDenseRetriever
+from retrieval.dense.faiss_search import FAISSDenseRetriever
 from retrieval.sparse.keyword_search import PostgresFTSSparseRetriever
 from retrieval.reranker.rrf_fusion import reciprocal_rank_fusion
 from retrieval.reranker.cross_encoder import CrossEncoderReranker
@@ -62,7 +63,14 @@ class HybridSearchCoordinator:
             self.pg_conn = None
 
         # 2. Setup Retrievers & Reranker
-        self.dense_retriever = PGVectorDenseRetriever(self.pg_conn, embedding_model_name)
+        vector_store = os.getenv("VECTOR_STORE_TYPE", "pgvector").lower()
+        if vector_store == "faiss":
+            logger.info("Initializing FAISS local vector store...")
+            self.dense_retriever = FAISSDenseRetriever(embedding_model_name, index_path="faiss_index")
+        else:
+            logger.info("Initializing PGVector remote vector store...")
+            self.dense_retriever = PGVectorDenseRetriever(self.pg_conn, embedding_model_name)
+            
         self.sparse_retriever = PostgresFTSSparseRetriever(self.pg_conn)
         self.cross_encoder = CrossEncoderReranker()
 

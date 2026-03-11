@@ -14,3 +14,6 @@ pgvector
 openai
 httpx
 anthropic
+faiss-cpu
+langchain
+langchain-openai
