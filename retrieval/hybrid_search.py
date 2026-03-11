@@ -1,17 +1,16 @@
 """
 Hybrid Search Coordinator for NovaSearch.
 
-This module is the core of the "Tri-Engine Fusion". It orchestrates:
-1. Dense Retrieval (PGVector Cosine Similarity via SentenceTransformers)
-2. Sparse Retrieval (PostgreSQL Full-Text Search)
-3. Graph Retrieval (Neo4j Contextual Expansion from Dense/Sparse base hits)
-4. Reranking (Reciprocal Rank Fusion - RRF)
+This module orchestrates:
+1. Dense Retrieval (via vector_search.py)
+2. Sparse Retrieval (via keyword_search.py)
+3. Graph Retrieval (Neo4j Contextual Expansion)
+4. Reranking (via rrf_fusion.py)
 """
 
 import os
 import logging
-from typing import List, Dict, Any, Tuple
-import numpy as np
+from typing import List, Dict, Any
 
 try:
     from dotenv import load_dotenv
@@ -19,21 +18,12 @@ try:
 except ImportError:
     pass
 
-try:
-    from sentence_transformers import SentenceTransformer
-except ImportError:
-    raise ImportError("Please install sentence-transformers: pip install sentence-transformers")
+import psycopg2
+from neo4j import GraphDatabase
 
-try:
-    import psycopg2
-    from psycopg2.extras import DictCursor
-except ImportError:
-    raise ImportError("Please install psycopg2-binary: pip install psycopg2-binary")
-
-try:
-    from neo4j import GraphDatabase
-except ImportError:
-    raise ImportError("Please install neo4j python driver: pip install neo4j")
+from retrieval.dense.vector_search import DenseRetriever
+from retrieval.sparse.keyword_search import SparseRetriever
+from retrieval.reranker.rrf_fusion import reciprocal_rank_fusion
 
 logger = logging.getLogger(__name__)
 
@@ -52,13 +42,9 @@ class HybridSearchCoordinator:
         neo4j_password: str | None = None
     ):
         """
-        Initializes the HybridSearchCoordinator with connections and embedding models.
+        Initializes the HybridSearchCoordinator with connections and retrievers.
         """
-        # 1. Load Embedding Model
-        logger.info("Loading embedding model for Dense Search...")
-        self.embedding_model = SentenceTransformer(embedding_model_name)
-        
-        # 2. Setup PostgreSQL (PGVector & FTS)
+        # 1. Setup PostgreSQL (PGVector & FTS)
         self.pg_dsn = pg_dsn or os.getenv("DATABASE_URL", 
             f"dbname={os.getenv('POSTGRES_DB', 'novasearch')} "
             f"user={os.getenv('POSTGRES_USER', 'postgres')} "
@@ -72,6 +58,10 @@ class HybridSearchCoordinator:
         except Exception as e:
             logger.error("Failed to connect to PostgreSQL: %s", str(e))
             self.pg_conn = None
+
+        # 2. Setup Retrievers
+        self.dense_retriever = DenseRetriever(self.pg_conn, embedding_model_name)
+        self.sparse_retriever = SparseRetriever(self.pg_conn)
 
         # 3. Setup Neo4j (Graph Retrieval)
         self.neo4j_uri = neo4j_uri or os.getenv("NEO4J_URI", "bolt://localhost:7687")
@@ -92,110 +82,24 @@ class HybridSearchCoordinator:
         """Cleanup connections on destruction."""
         if self.pg_conn and not self.pg_conn.closed:
             self.pg_conn.close()
-        if self.neo4j_driver:
+        if hasattr(self, 'neo4j_driver') and self.neo4j_driver:
             self.neo4j_driver.close()
-
-    def _dense_search(self, query: str, top_k: int = 10) -> List[Dict[str, Any]]:
-        """
-        Performs vector similarity search on pgvector.
-        Returns a list of dicts: {'chunk_id': str, 'score': float, 'text': str, ...}
-        """
-        if not self.pg_conn:
-            logger.warning("Postgres offline. Skipping dense search.")
-            return []
-            
-        # 1. Embed query
-        query_vector = self.embedding_model.encode(query).tolist()
-        
-        # 2. Execute pgvector search (assuming <-> operator for L2 or <=> for Cosine)
-        # Placeholder SQL - requires a 'chunks' table with a 'embedding' vector column
-        sql = """
-            SELECT 
-                doc_id, index, chunk_text, 
-                1 - (embedding <=> %s::vector) AS similarity_score
-            FROM chunks
-            ORDER BY embedding <=> %s::vector
-            LIMIT %s;
-        """
-        
-        results = []
-        try:
-            with self.pg_conn.cursor(cursor_factory=DictCursor) as cur:
-                # We need to construct the vector string representation
-                vector_str = "[" + ",".join([str(x) for x in query_vector]) + "]"
-                cur.execute(sql, (vector_str, vector_str, top_k))
-                rows = cur.fetchall()
-                for row in rows:
-                    results.append({
-                        "doc_id": row["doc_id"],
-                        "chunk_index": row["index"],
-                        "chunk_text": row["chunk_text"],
-                        "score": float(row["similarity_score"]),
-                        "source": "dense"
-                    })
-        except Exception as e:
-            logger.error("Error during Dense Search: %s", str(e))
-            self.pg_conn.rollback() # Rollback on error
-            
-        return results
-
-    def _sparse_search(self, query: str, top_k: int = 10) -> List[Dict[str, Any]]:
-        """
-        Performs PostgreSQL Full-Text Search (Keyword Matching).
-        """
-        if not self.pg_conn:
-             logger.warning("Postgres offline. Skipping sparse search.")
-             return []
-             
-        # Placeholder SQL for Postgres FTS
-        # Assuming a 'fts_tokens' tsvector column or just plainto_tsquery on text
-        sql = """
-            SELECT 
-                doc_id, index, chunk_text, 
-                ts_rank(to_tsvector('english', chunk_text), plainto_tsquery('english', %s)) AS rank_score
-            FROM chunks
-            WHERE to_tsvector('english', chunk_text) @@ plainto_tsquery('english', %s)
-            ORDER BY rank_score DESC
-            LIMIT %s;
-        """
-        
-        results = []
-        try:
-            with self.pg_conn.cursor(cursor_factory=DictCursor) as cur:
-                cur.execute(sql, (query, query, top_k))
-                rows = cur.fetchall()
-                for row in rows:
-                    results.append({
-                        "doc_id": row["doc_id"],
-                        "chunk_index": row["index"],
-                        "chunk_text": row["chunk_text"],
-                        "score": float(row["rank_score"]),
-                        "source": "sparse"
-                    })
-        except Exception as e:
-            logger.error("Error during Sparse Search: %s", str(e))
-            self.pg_conn.rollback()
-            
-        return results
 
     def _graph_expansion(self, base_hits: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
         Takes the top hits from Dense/Sparse, queries Neo4j for their parent
         document and adjacent chunks (1-hop), and injects this graph context.
         """
-        if not self.neo4j_driver or not base_hits:
+        if not hasattr(self, 'neo4j_driver') or not self.neo4j_driver or not base_hits:
             return base_hits
             
         enriched_hits = []
         
-        # We process each hit to find its graph neighborhood
         with self.neo4j_driver.session() as session:
             for hit in base_hits:
                 doc_id = hit["doc_id"]
                 idx = hit["chunk_index"]
                 
-                # Cypher query: Find the chunk, its parent document, and 
-                # immediately adjacent chunks (idx-1 and idx+1) for context windowing.
                 cypher = """
                 MATCH (d:Document {id: $doc_id})-[:HAS_CHUNK]->(c:Chunk {index: $idx})
                 OPTIONAL MATCH (d)-[:HAS_CHUNK]->(prev:Chunk {index: $idx - 1})
@@ -217,11 +121,9 @@ class HybridSearchCoordinator:
                             "prev_context": result["prev_context"],
                             "next_context": result["next_context"]
                         }
-                        # Merge the graph context into the hit
                         enriched_hit = {**hit, "graph_context": graph_context}
                         enriched_hits.append(enriched_hit)
                     else:
-                        # Fallback if graph node not found
                         enriched_hits.append({**hit, "graph_context": None})
                 except Exception as e:
                     logger.error("Graph Expansion error for Doc %s, Idx %s: %s", doc_id, idx, str(e))
@@ -229,63 +131,19 @@ class HybridSearchCoordinator:
                     
         return enriched_hits
 
-    def _reciprocal_rank_fusion(
-        self, 
-        dense_results: List[Dict[str, Any]], 
-        sparse_results: List[Dict[str, Any]], 
-        k: int = 60
-    ) -> List[Dict[str, Any]]:
-        """
-        Fuses Dense and Sparse results using Reciprocal Rank Fusion (RRF).
-        formula: RRF_score = 1 / (k + rank)
-        """
-        rrf_scores: Dict[Tuple[str, int], Dict[str, Any]] = {}
-        
-        # Process Dense
-        for rank, hit in enumerate(dense_results):
-            key = (hit["doc_id"], hit["chunk_index"])
-            if key not in rrf_scores:
-                rrf_scores[key] = {**hit, "rrf_score": 0.0, "sources": []}
-            rrf_scores[key]["rrf_score"] += 1.0 / (k + rank + 1)
-            rrf_scores[key]["sources"].append("dense")
-            
-        # Process Sparse
-        for rank, hit in enumerate(sparse_results):
-             key = (hit["doc_id"], hit["chunk_index"])
-             if key not in rrf_scores:
-                 rrf_scores[key] = {**hit, "rrf_score": 0.0, "sources": []}
-             rrf_scores[key]["rrf_score"] += 1.0 / (k + rank + 1)
-             if "sparse" not in rrf_scores[key]["sources"]:
-                 rrf_scores[key]["sources"].append("sparse")
-                 
-        # Sort by final RRF score descending
-        fused_results = list(rrf_scores.values())
-        fused_results.sort(key=lambda x: x["rrf_score"], reverse=True)
-        return fused_results
-
     def search(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
         """
         Main orchestration method for Tri-Engine Fusion.
-        1. Excutes Dense & Sparse retrieval in parallel (simulation here).
-        2. Fuses with Reciprocal Rank Fusion.
-        3. Expands top fused results using Knowledge Graph traversal.
-        
-        Args:
-            query (str): The natural language query.
-            top_k (int): Number of final contextualized chunks to return.
-            
-        Returns:
-            List of fused, grounded chunks ready for the Context Window & LLM.
         """
         logger.info("Initiating Hybrid Search for query: '%s'", query)
         
-        # 1. Base Retrieval (Fetch slightly more to fuse well)
+        # 1. Base Retrieval
         fetch_k = top_k * 3 
-        dense_hits = self._dense_search(query, top_k=fetch_k)
-        sparse_hits = self._sparse_search(query, top_k=fetch_k)
+        dense_hits = self.dense_retriever.search(query, top_k=fetch_k)
+        sparse_hits = self.sparse_retriever.search(query, top_k=fetch_k)
         
         # 2. Rerank / Fuse (RRF)
-        fused_hits = self._reciprocal_rank_fusion(dense_hits, sparse_hits)
+        fused_hits = reciprocal_rank_fusion(dense_hits, sparse_hits)
         
         # Trim to final desired K before heavy graph operations
         fused_list = list(fused_hits)
