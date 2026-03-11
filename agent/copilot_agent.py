@@ -11,6 +11,12 @@ import logging
 from typing import List, Dict, Any
 
 try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
+try:
     from openai import OpenAI
 except ImportError:
     raise ImportError("Please install openai: pip install openai")

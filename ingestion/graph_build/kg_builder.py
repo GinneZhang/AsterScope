@@ -11,6 +11,12 @@ import logging
 from typing import List, Dict, Any
 
 try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
+try:
     from neo4j import GraphDatabase
 except ImportError:
     raise ImportError("Please install neo4j python driver: pip install neo4j")

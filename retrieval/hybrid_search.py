@@ -14,6 +14,12 @@ from typing import List, Dict, Any, Tuple
 import numpy as np
 
 try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
+try:
     from sentence_transformers import SentenceTransformer
 except ImportError:
     raise ImportError("Please install sentence-transformers: pip install sentence-transformers")
