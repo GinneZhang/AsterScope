@@ -202,8 +202,8 @@ def ingest_document(
     Uses standard `def` (instead of `async def`) to safely offload heavy synchronous 
     CPU bounds (SentenceTransformers) and blocking DB I/O to FastAPI's threadpool.
     """
-    global chunker, kg_builder
-    if not chunker or not kg_builder:
+    global chunker, kg_builder, multimodal_parser
+    if not chunker or not kg_builder or not multimodal_parser:
         try:
             chunk_strategy = os.getenv("CHUNKING_STRATEGY", "semantic").lower()
             if not chunker:
