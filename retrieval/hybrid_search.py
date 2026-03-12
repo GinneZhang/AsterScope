@@ -209,7 +209,8 @@ class HybridSearchCoordinator:
     def _deep_graph_search(self, query: str, query_graph: Optional[List[Dict[str, str]]] = None) -> List[Dict[str, Any]]:
         """
         Attempts to generate and execute a dynamic Cypher query for multi-hop 
-        relationship reasoning.
+        relationship reasoning. Uses self-healing: if Cypher fails, the error
+        is fed back to the LLM for repair.
         """
         if not self.neo4j_driver:
             return []
@@ -219,34 +220,63 @@ class HybridSearchCoordinator:
         if query_graph:
             graph_json = json.dumps(query_graph)
             context_query = f"{query}\n[Semantic Context]: {graph_json}"
+        
+        # Define the executor function for self-healing validation
+        _captured_records = []
+        
+        def _execute_cypher(cypher_str: str):
+            """Validates Cypher by executing it. Raises on failure."""
+            with self.neo4j_driver.session() as session:
+                result = session.run(cypher_str)
+                _captured_records.clear()
+                for record in result:
+                    _captured_records.append(record.data())
             
-        cypher = self.cypher_gen.generate(context_query)
+        # Use self-healing generation
+        cypher = self.cypher_gen.generate_with_healing(context_query, executor_fn=_execute_cypher)
         if not cypher:
             return []
             
-        logger.info(f"Executing Dynamic Cypher: {cypher}")
+        logger.info(f"Validated Dynamic Cypher: {cypher}")
         graph_hits = []
         
-        try:
-            with self.neo4j_driver.session() as session:
-                records = session.run(cypher)
-                for record in records:
-                    # Convert record to a flat dict
-                    data = record.data()
-                    text_content = " | ".join([str(v) for v in data.values()])
-                    graph_hits.append({
-                        "id": f"graph_{uuid.uuid4().hex[:8]}",
-                        "doc_id": "Knowledge Graph",
-                        "chunk_index": -1,
-                        "chunk_text": f"[Symbolic Reasoning]: {text_content}",
-                        "score": 1.0, # High score for symbolic matches
-                        "source": "dynamic_cypher",
-                        "graph_context": {"doc_title": "Neo4j Symbolic Path", "doc_section": "Multi-hop reasoning"}
-                    })
-            return graph_hits
-        except Exception as e:
-            logger.error(f"Dynamic Cypher execution failed: {e}")
-            return []
+        # Use the already-captured records from the healing validation
+        if _captured_records:
+            for data in _captured_records:
+                text_content = " | ".join([str(v) for v in data.values()])
+                graph_hits.append({
+                    "id": f"graph_{uuid.uuid4().hex[:8]}",
+                    "doc_id": "Knowledge Graph",
+                    "chunk_index": -1,
+                    "chunk_text": f"[Symbolic Reasoning]: {text_content}",
+                    "score": 1.0,
+                    "source": "dynamic_cypher",
+                    "graph_context": {"doc_title": "Neo4j Symbolic Path", "doc_section": "Multi-hop reasoning"}
+                })
+        else:
+            # Fallback: re-execute valid Cypher if records weren't captured
+            try:
+                with self.neo4j_driver.session() as session:
+                    records = session.run(cypher)
+                    for record in records:
+                        data = record.data()
+                        text_content = " | ".join([str(v) for v in data.values()])
+                        graph_hits.append({
+                            "id": f"graph_{uuid.uuid4().hex[:8]}",
+                            "doc_id": "Knowledge Graph",
+                            "chunk_index": -1,
+                            "chunk_text": f"[Symbolic Reasoning]: {text_content}",
+                            "score": 1.0,
+                            "source": "dynamic_cypher",
+                            "graph_context": {"doc_title": "Neo4j Symbolic Path", "doc_section": "Multi-hop reasoning"}
+                        })
+            except Exception as e:
+                logger.error(f"Dynamic Cypher re-execution failed: {e}")
+                return []
+        
+        if graph_hits:
+            logger.info(f"Dynamic Cypher returned {len(graph_hits)} symbolic paths.")
+        return graph_hits
 
     def search(self, query: str, top_k: int = 5, query_graph: Optional[List[Dict[str, str]]] = None) -> List[Dict[str, Any]]:
         """

@@ -1,43 +1,56 @@
 # 🚀 NovaSearch: Enterprise Copilot & Intelligent Retrieval Engine
 
-NovaSearch is a next-generation enterprise knowledge retrieval and reasoning system. Moving beyond traditional Keyword matching (BM25) and naive RAG architectures, NovaSearch utilizes a **"Tri-Engine Fusion"** approach: **LLM Semantics + Hybrid Multimodal RAG + Knowledge Graph Reasoning**. 
+NovaSearch is a strong foundation for an enterprise knowledge retrieval and reasoning system. It implements a **"Tri-Engine Fusion"** approach: **LLM Semantics + Hybrid Multimodal RAG + Knowledge Graph Reasoning**.
 
-Our primary objective is to deliver highly accurate, explainable, and hallucination-free Copilot experiences for complex enterprise SOPs, medical guidelines, and legal frameworks.
+Our objective is to deliver highly accurate, explainable, and hallucination-resistant Copilot experiences for enterprise SOPs, compliance documents, and structured knowledge.
 
 ## 🧠 System Architecture & Core Pillars
 
-Our pipeline is designed for extreme reliability, logical reasoning, and factual grounding:
-
 1. **Query Understanding & Context Memory**
-   - **Structuring**: LLM-driven query rewriting, intent recognition, and structured semantic graph generation.
+   - **Structuring**: LLM-driven query rewriting, intent recognition, and structured semantic graph generation (triplet extraction).
    - **Decomposition**: Multi-hop task breakdown and proactive clarification prompting for ambiguous queries.
-   - **Context**: Agent-based cross-session thread linking and memory state management via Redis.
+   - **Context**: Semantic cross-session thread linking and memory state management via Redis + SentenceTransformers.
 
 2. **Hybrid Multimodal Retrieval**
-   - **Tri-Retrieval Fusion**: Integrating Sparse (BM25/Elasticsearch), Dense (FAISS/BGE for text), Multimodal Vision (OpenAI CLIP `clip-ViT-B-32` mapping text and images to a shared 512-dim vector space), and Structural (Neo4j Cypher Graph Traversal) pathways.
-   - **Cross-Modal Search**: The `/ask_vision` endpoint allows users to upload images to retrieve semantically related text or vision charts natively.
-   - **Advanced Chunking**: Utilizing **Sliding Window + Embedding Clustering** to preserve semantic context boundaries.
-   - **Reranking**: Deep contextual re-ranking via ColBERT or MonoT5.
+   - **Tri-Retrieval Fusion**: Integrating Sparse (PostgreSQL FTS / Elasticsearch), Dense (PGVector with `all-MiniLM-L6-v2`), Multimodal Vision (OpenAI CLIP `clip-ViT-B-32`) and Structural (Neo4j Cypher Graph Traversal) pathways.
+   - **Table-Aware Parsing**: PDF and DOCX table extraction via pdfplumber and python-docx, formatted as Markdown grids for structural preservation in the vector space.
+   - **Cross-Modal Search**: The `/ask_vision` endpoint allows users to upload images to retrieve semantically related text chunks.
+   - **Advanced Chunking**: Sliding Window + Embedding Clustering to preserve semantic context boundaries.
+   - **Reranking**: Cross-Encoder reranking (`cross-encoder/ms-marco-MiniLM-L-6-v2`), with pluggable support for ColBERT and MonoT5.
 
 3. **Knowledge Graph Reasoning (KG)**
-   - **Disambiguation**: Precision Entity Linking and NER mapping queries to graph nodes.
-   - **Multi-hop Traversal**: Symbolic + Neural graph traversal to unearth implicit relationships.
-   - **Factual Grounding**: Utilizing KG constraints to structurally suppress LLM hallucinations.
+   - **Disambiguation**: spaCy NER mapping queries to graph nodes.
+   - **Dynamic Cypher**: Text-to-Cypher generation via LLM with self-healing retry loop (error-feedback repair).
+   - **Factual Grounding**: KG constraints injected into generative context to suppress LLM hallucinations.
 
 4. **Controlled LLM Generation**
-   - Source-grounded QA (mandatory origin tracing for all outputs).
-   - Real-time consistency scoring and format alignment (Summaries, Tables, Decision Trees) via Streaming LLM.
+   - Source-grounded QA with mandatory origin tracing for all outputs.
+   - Real-time consistency scoring via fail-closed `ConsistencyEvaluator` (GPT-4 Turbo).
+   - Iterative ReAct reasoning loop with clarification exhaustion.
 
-## 🛠 Tech Stack Blueprint
+## 🛠 Current Tech Stack
 
-| Component | Selected Technology |
+| Component | Implemented Technology |
 | :--- | :--- |
-| **LLMs & Reasoning** | GPT-4, Claude 3, LLaMA/Mistral + PEFT/LoRA |
-| **Retrieval & Rerank** | FAISS, Elasticsearch, BM25, ColBERT |
-| **Vector Models** | BGE, E5, Contriever, OpenAI Embedding |
+| **LLMs & Reasoning** | OpenAI GPT-4 / GPT-4 Turbo, GPT-3.5 Turbo |
+| **Retrieval & Rerank** | PGVector, PostgreSQL FTS, Elasticsearch, Cross-Encoder, ColBERT, MonoT5 |
+| **Vector Models** | `all-MiniLM-L6-v2` (text), `clip-ViT-B-32` (vision) |
 | **Databases** | PostgreSQL + PGVector, Redis, Neo4j |
-| **Frameworks** | FastAPI, LlamaIndex, LangChain |
-| **Infrastructure** | Docker Compose (Local & Production Ready) |
+| **Frameworks** | FastAPI, LangChain |
+| **Infrastructure** | Docker Compose (PostgreSQL, Redis, Neo4j, Elasticsearch) |
+
+## 🗺️ Roadmap / Future Architecture
+
+The following capabilities are **planned but not yet implemented**:
+
+| Capability | Status |
+| :--- | :--- |
+| **PEFT / LoRA fine-tuning** | Planned — no local fine-tuning pipeline exists yet |
+| **LlamaIndex orchestration** | Planned — currently using custom LangChain + FastAPI orchestration |
+| **BGE / Contriever / E5 embeddings** | Planned — currently using `all-MiniLM-L6-v2` for text |
+| **Claude 3 / Anthropic integration** | Planned — API key support exists but not wired into generation |
+| **Full observability harness** | Planned — basic logging in place, no distributed tracing |
+| **Production Kubernetes deployment** | Planned — currently Docker Compose only |
 
 ## 📁 Project Structure
 
@@ -313,7 +326,7 @@ This will embed your image into a 512-dimensional vector and retrieve the closes
 If you installed dev dependencies, you can run:
 
 ```bash
-pytest tests/test_e2e.py -v
+pytest tests/ -v
 ```
 
 Before running tests, make sure:
