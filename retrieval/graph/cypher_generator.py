@@ -17,18 +17,7 @@ class CypherGenerator:
     Includes a self-healing retry loop: if the generated Cypher fails
     execution, the error is fed back to the LLM for repair.
     """
-
-    def __init__(self, model: str = "gpt-4-turbo-preview", max_retries: int = 2):
-        self.api_key = os.getenv("OPENAI_API_KEY")
-        if not self.api_key:
-            logger.warning("OPENAI_API_KEY missing for CypherGenerator.")
-        self.client = openai.OpenAI(api_key=self.api_key)
-        self.model = model
-        self.max_retries = max_retries
-
-    def _get_schema_context(self) -> str:
-        """Simple schema description for the LLM."""
-        return """
+    FALLBACK_SCHEMA = """
         Neo4j Schema:
         - Nodes:
             1. Document (id, title, section, metadata)
@@ -38,6 +27,59 @@ class CypherGenerator:
             1. (Document)-[:HAS_CHUNK]->(Chunk)
             2. (Chunk)-[:MENTIONS]->(Entity)
         """
+
+    def __init__(self, model: str = "gpt-4-turbo-preview", max_retries: int = 2, neo4j_driver=None):
+        self.api_key = os.getenv("OPENAI_API_KEY")
+        if not self.api_key:
+            logger.warning("OPENAI_API_KEY missing for CypherGenerator.")
+        self.client = openai.OpenAI(api_key=self.api_key)
+        self.model = model
+        self.max_retries = max_retries
+        self.neo4j_driver = neo4j_driver
+        self._cached_schema: Optional[str] = None
+
+    def _get_schema_context(self) -> str:
+        """
+        Fetches the live Neo4j schema via introspection.
+        Falls back to the hardcoded schema if introspection fails.
+        """
+        if self._cached_schema:
+            return self._cached_schema
+        
+        if self.neo4j_driver:
+            try:
+                with self.neo4j_driver.session() as session:
+                    # Get node labels and their properties
+                    labels_result = session.run("CALL db.labels()")
+                    labels = [r["label"] for r in labels_result]
+                    
+                    # Get relationship types
+                    rels_result = session.run("CALL db.relationshipTypes()")
+                    rel_types = [r["relationshipType"] for r in rels_result]
+                    
+                    # Get property keys per label
+                    schema_lines = ["Neo4j Live Schema:"]
+                    schema_lines.append("- Node Labels:")
+                    for label in labels:
+                        props_result = session.run(
+                            f"MATCH (n:`{label}`) WITH n LIMIT 1 RETURN keys(n) AS props"
+                        )
+                        props = []
+                        for r in props_result:
+                            props = r["props"]
+                        schema_lines.append(f"    {label} ({', '.join(props) if props else 'no properties sampled'})")
+                    
+                    schema_lines.append("- Relationship Types:")
+                    for rel in rel_types:
+                        schema_lines.append(f"    [:{rel}]")
+                    
+                    self._cached_schema = "\n".join(schema_lines)
+                    logger.info("CypherGenerator: Using live Neo4j schema introspection.")
+                    return self._cached_schema
+            except Exception as e:
+                logger.warning(f"Schema introspection failed, using fallback: {e}")
+        
+        return self.FALLBACK_SCHEMA
 
     def generate(self, user_query: str) -> Optional[str]:
         """
