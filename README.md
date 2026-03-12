@@ -1,7 +1,7 @@
 # 🚀 NovaSearch: Enterprise Copilot & Intelligent Retrieval Engine
 
 <p align="center">
-  <b>[English](README.md) | [中文文档](README_CN.md)</b>
+  <a href="README.md">[English]</a> | <a href="README_CN.md">[中文文档]</a>
 </p>
 
 NovaSearch is a production-hardened enterprise knowledge retrieval and reasoning system implementing **"Tri-Engine Fusion"**: **LLM Semantics + Hybrid Multimodal RAG + Knowledge Graph Reasoning**.

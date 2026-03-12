@@ -1,7 +1,7 @@
 # 🚀 NovaSearch v1.0.0 — 发布说明
 
 <p align="center">
-  <b>[English](release_notes_v1.0.0.md) | [中文文档](release_notes_v1.0.0_cn.md)</b>
+  <a href="release_notes_v1.0.0.md">[English]</a> | <a href="release_notes_v1.0.0_cn.md">[中文文档]</a>
 </p>
 
 **发布日期**：2026-03-12

@@ -1,7 +1,7 @@
 # 🚀 NovaSearch：企业级智能检索与推理引擎
 
 <p align="center">
-  <b>[English](README.md) | [中文文档](README_CN.md)</b>
+  <a href="README.md">[English]</a> | <a href="README_CN.md">[中文文档]</a>
 </p>
 
 NovaSearch 是一套生产级企业知识检索与推理系统，采用**「三引擎融合」**架构：**LLM 语义 + 混合多模态 RAG + 知识图谱推理**。

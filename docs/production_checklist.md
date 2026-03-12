@@ -1,7 +1,7 @@
 # 🚀 NovaSearch v1.0.0 — Production Checklist
 
 <p align="center">
-  <b>[English](production_checklist.md) | [中文文档](production_checklist_cn.md)</b>
+  <a href="production_checklist.md">[English]</a> | <a href="production_checklist_cn.md">[中文文档]</a>
 </p>
 
 > **Purpose**: Complete verification checklist before deploying NovaSearch to a production environment.
