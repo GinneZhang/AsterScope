@@ -14,7 +14,8 @@ Our pipeline is designed for extreme reliability, logical reasoning, and factual
    - **Context**: Agent-based cross-session thread linking and memory state management via Redis.
 
 2. **Hybrid Multimodal Retrieval**
-   - **Tri-Retrieval Fusion**: Integrating Sparse (BM25/Elasticsearch), Dense (FAISS/BGE for text/image/table vectors), and Structural (Neo4j Cypher Graph Traversal) pathways.
+   - **Tri-Retrieval Fusion**: Integrating Sparse (BM25/Elasticsearch), Dense (FAISS/BGE for text), Multimodal Vision (OpenAI CLIP `clip-ViT-B-32` mapping text and images to a shared 512-dim vector space), and Structural (Neo4j Cypher Graph Traversal) pathways.
+   - **Cross-Modal Search**: The `/ask_vision` endpoint allows users to upload images to retrieve semantically related text or vision charts natively.
    - **Advanced Chunking**: Utilizing **Sliding Window + Embedding Clustering** to preserve semantic context boundaries.
    - **Reranking**: Deep contextual re-ranking via ColBERT or MonoT5.
 
@@ -288,6 +289,22 @@ curl -X POST "http://localhost:8000/ask" \
 ```
 
 The `/ask` endpoint returns a streaming NDJSON response with intermediate status/thought messages and the final grounded answer.
+
+---
+
+## 🖼️ Search by Image (True Multimodal RAG)
+
+You can query the common CLIP vector space using an image via the `/ask_vision` endpoint:
+
+```bash
+curl -X POST "http://localhost:8000/ask_vision" \
+  -H "accept: application/json" \
+  -H "Content-Type: multipart/form-data" \
+  -F "file=@/path/to/query_image.jpg" \
+  -F "top_k=5"
+```
+
+This will embed your image into a 512-dimensional vector and retrieve the closest text chunks or graphs ingested previously.
 
 ---
 

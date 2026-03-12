@@ -30,6 +30,9 @@ from ingestion.chunking.semantic_chunker import SemanticChunker
 from ingestion.chunking.sliding_window import SlidingWindowChunker
 from ingestion.graph_build.kg_builder import KGBuilder
 from ingestion.parsers.multimodal_parser import MultimodalParser
+from retrieval.dense.vision_search import PGVectorVisionRetriever
+from PIL import Image
+import io
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -73,12 +76,14 @@ try:
         
     kg_builder = KGBuilder()
     multimodal_parser = MultimodalParser()
+    vision_retriever = PGVectorVisionRetriever()
 except Exception as e:
     logger.error("Failed to initialize tools: %s", str(e))
     copilot_agent = None
     chunker = None
     kg_builder = None
     multimodal_parser = None
+    vision_retriever = None
 
 
 @app.get("/health")
@@ -147,6 +152,47 @@ def ask_copilot(request: QueryRequest):
     return StreamingResponse(generate_stream(), media_type="application/x-ndjson")
 
 
+@app.post("/ask_vision", dependencies=[Depends(get_api_key)])
+async def ask_vision(
+    file: UploadFile = File(...),
+    top_k: int = Form(5)
+):
+    """
+    Multimodal endpoints that takes an image upload and searches the common CLIP vector space.
+    """
+    global vision_retriever
+    if not vision_retriever:
+        try:
+            vision_retriever = PGVectorVisionRetriever()
+        except Exception as e:
+            logger.error(f"Failed to initialize Vision Retriever: {e}")
+            raise HTTPException(status_code=503, detail="Vision services unavailable.")
+            
+    try:
+        if not file.content_type or "image" not in file.content_type.lower():
+            raise HTTPException(status_code=400, detail="Uploaded file must be an image.")
+            
+        file_bytes = await file.read()
+        pic = Image.open(io.BytesIO(file_bytes))
+        
+        logger.info(f"Processing image query...")
+        query_embedding = vision_retriever.embed(pic)
+        
+        # Search the multimodal vector space
+        hits = vision_retriever.search(query_embedding, top_k=top_k)
+        
+        return {
+            "status": "success",
+            "query_type": "image",
+            "results": hits
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Vision search failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Vision search failed: {str(e)}")
+
+
 def _insert_chunks_to_postgres(doc_id: str, title: str, section: str, chunks: list):
     """Helper to insert generated chunks and dense vectors into Postgres."""
     pg_dsn = os.getenv("DATABASE_URL", 
@@ -202,7 +248,7 @@ def ingest_document(
     Uses standard `def` (instead of `async def`) to safely offload heavy synchronous 
     CPU bounds (SentenceTransformers) and blocking DB I/O to FastAPI's threadpool.
     """
-    global chunker, kg_builder, multimodal_parser
+    global chunker, kg_builder, multimodal_parser, vision_retriever
     if not chunker or not kg_builder or not multimodal_parser:
         try:
             chunk_strategy = os.getenv("CHUNKING_STRATEGY", "semantic").lower()
@@ -215,6 +261,8 @@ def ingest_document(
                 kg_builder = KGBuilder()
             if not multimodal_parser:
                 multimodal_parser = MultimodalParser()
+            if not vision_retriever:
+                vision_retriever = PGVectorVisionRetriever()
         except Exception as e:
             logger.error(f"Error details: {str(e)}")
             raise HTTPException(status_code=503, detail="Ingestion services unavailable.")
@@ -230,6 +278,7 @@ def ingest_document(
     try:
         document_text = ""
         # Extract Text from Uploaded File if provided
+        file_bytes = None
         if file:
             logger.info("Parsing uploaded file: %s (MIME: %s)", title, file.content_type)
             file_bytes = file.file.read()
@@ -280,6 +329,25 @@ def ingest_document(
             # 3. Persist to Neo4j (Knowledge Graph Construction)
             logger.info("Building Knowledge Graph for document...")
             kg_builder.build_graph(chunks)
+            
+            # 4. Multimodal Vision Embeddings (CLIP)
+            if vision_retriever:
+                logger.info("Generating CLIP multimodal embeddings...")
+                # If an image was uploaded alongside the ingest, embed the raw image once to represent the doc
+                if file_bytes and file.content_type and "image" in file.content_type.lower():
+                    try:
+                        pic = Image.open(io.BytesIO(file_bytes))
+                        v_emb = vision_retriever.embed(pic)
+                        vision_retriever.insert_vision_chunk(doc_id, -1, "[Raw Image Document]", v_emb)
+                    except Exception as ve:
+                        logger.error(f"Failed to embed raw image: {ve}")
+                
+                # Also embed the isolated text chunks into the vision space
+                for idx, c in enumerate(chunks):
+                    text_context = c.get("chunk_text", "")
+                    if text_context:
+                        v_emb = vision_retriever.embed(text_context)
+                        vision_retriever.insert_vision_chunk(doc_id, idx, text_context, v_emb)
             
         except Exception as db_err:
             # If Graph fails, we log an alert (a robust system would execute a PG rollback query here)
