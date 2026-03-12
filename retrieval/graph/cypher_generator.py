@@ -1,10 +1,12 @@
 """
-Dynamic Text-to-Cypher Generator for Neo4j with Self-Healing retry loop.
+Dynamic Text-to-Cypher Generator for Neo4j with Self-Healing retry loop
+and formal Cypher Linting / Schema Validation.
 """
 
 import os
+import re
 import logging
-from typing import Optional
+from typing import Optional, List, Dict, Set
 import openai
 
 logger = logging.getLogger(__name__)
@@ -37,6 +39,38 @@ class CypherGenerator:
         self.max_retries = max_retries
         self.neo4j_driver = neo4j_driver
         self._cached_schema: Optional[str] = None
+        self._known_labels: Set[str] = set()
+        self._known_rels: Set[str] = set()
+
+    def _lint_cypher(self, cypher: str) -> Optional[str]:
+        """
+        Validates a generated Cypher query against the live schema.
+        Returns an error message if invalid, None if valid.
+        """
+        # Ensure schema is loaded
+        self._get_schema_context()
+        
+        if not self._known_labels and not self._known_rels:
+            # Can't validate without schema knowledge
+            return None
+        
+        errors = []
+        
+        # Check for write operations (strict read-only enforcement)
+        write_keywords = ["CREATE", "MERGE", "SET ", "DELETE", "REMOVE", "DROP"]
+        for kw in write_keywords:
+            if kw in cypher.upper():
+                errors.append(f"Write operation '{kw.strip()}' detected. Only read-only queries are allowed.")
+        
+        # Validate node labels referenced in query
+        label_refs = re.findall(r':\s*([A-Z][a-zA-Z_]*)', cypher)
+        for label in label_refs:
+            if self._known_labels and label not in self._known_labels and label not in self._known_rels:
+                errors.append(f"Unknown label/type '{label}'. Known labels: {', '.join(sorted(self._known_labels))}. Known rels: {', '.join(sorted(self._known_rels))}.")
+        
+        if errors:
+            return "Schema Validation Errors: " + "; ".join(errors)
+        return None
 
     def _get_schema_context(self) -> str:
         """
@@ -52,10 +86,12 @@ class CypherGenerator:
                     # Get node labels and their properties
                     labels_result = session.run("CALL db.labels()")
                     labels = [r["label"] for r in labels_result]
+                    self._known_labels = set(labels)
                     
                     # Get relationship types
                     rels_result = session.run("CALL db.relationshipTypes()")
                     rel_types = [r["relationshipType"] for r in rels_result]
+                    self._known_rels = set(rel_types)
                     
                     # Get property keys per label
                     schema_lines = ["Neo4j Live Schema:"]

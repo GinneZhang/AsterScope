@@ -29,7 +29,13 @@ class EntityLinker:
     Precision Entity Linker that performs vector similarity search
     against Neo4j Entity nodes to map extracted mentions to canonical
     graph node IDs with high confidence.
+    
+    Probabilistic linking: if confidence is between similarity_threshold
+    and CLARIFICATION_THRESHOLD, the result is marked as 'ambiguous' and
+    the agent should trigger a proactive clarification chunk.
     """
+    
+    CLARIFICATION_THRESHOLD = 0.8  # Below this -> trigger clarification
     
     def __init__(self, model_name: str = "all-MiniLM-L6-v2", similarity_threshold: float = 0.7):
         self.similarity_threshold = similarity_threshold
@@ -87,12 +93,19 @@ class EntityLinker:
         
         return entities
     
-    def link(self, mention: str) -> Optional[Dict[str, str]]:
+    def link(self, mention: str) -> Optional[Dict[str, Any]]:
         """
         Link a text mention to a canonical Neo4j Entity node.
         
         Returns:
-            Dict with 'name', 'type', 'confidence' if match found, else None.
+            Dict with keys:
+                'name': canonical entity name
+                'type': entity type
+                'confidence': float similarity score
+                'ambiguous': bool - True if confidence is between
+                             similarity_threshold and CLARIFICATION_THRESHOLD,
+                             signaling the agent should ask the user to disambiguate.
+            Returns None if no match above similarity_threshold.
         """
         if not self.model:
             return None
@@ -116,20 +129,41 @@ class EntityLinker:
             
             if similarity > best_score:
                 best_score = similarity
-                best_match = {"name": name, "type": etype, "confidence": round(similarity, 4)}
+                best_match = {
+                    "name": name,
+                    "type": etype,
+                    "confidence": round(float(similarity), 4),
+                    "ambiguous": False
+                }
         
         if best_match and best_score >= self.similarity_threshold:
-            logger.info(f"EntityLinker: '{mention}' -> '{best_match['name']}' (conf={best_score:.3f})")
+            # Mark as ambiguous if below clarification threshold
+            if best_score < self.CLARIFICATION_THRESHOLD:
+                best_match["ambiguous"] = True
+                logger.info(
+                    f"EntityLinker: '{mention}' -> '{best_match['name']}' "
+                    f"(conf={best_score:.3f}, AMBIGUOUS — clarification recommended)"
+                )
+            else:
+                logger.info(f"EntityLinker: '{mention}' -> '{best_match['name']}' (conf={best_score:.3f})")
             return best_match
         
         logger.debug(f"EntityLinker: No confident match for '{mention}' (best={best_score:.3f})")
         return None
     
-    def link_batch(self, mentions: List[str]) -> Dict[str, Optional[Dict[str, str]]]:
+    def link_batch(self, mentions: List[str]) -> Dict[str, Optional[Dict[str, Any]]]:
         """Link multiple mentions at once."""
         return {mention: self.link(mention) for mention in mentions}
+    
+    def get_ambiguous_entities(self, results: Dict[str, Optional[Dict[str, Any]]]) -> List[str]:
+        """Filter linked results to find entities that need user clarification."""
+        return [
+            mention for mention, result in results.items()
+            if result and result.get("ambiguous", False)
+        ]
     
     def invalidate_cache(self):
         """Clear the entity index cache (e.g., after ingestion)."""
         self._entity_cache.clear()
         logger.info("EntityLinker: Cache invalidated")
+

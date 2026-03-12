@@ -23,6 +23,8 @@ class AgentPhase(str, Enum):
     EVALUATING = "evaluating"
     GENERATING = "generating"
     CLARIFYING = "clarifying"
+    SUSPENDED = "suspended"    # Waiting for external input (user, API, etc.)
+    REPLANNING = "replanning"  # Critic rejected the plan; re-planning
     COMPLETE = "complete"
 
 
@@ -268,3 +270,85 @@ class StateManager:
                 self.redis.delete(f"{self.STATE_PREFIX}{session_id}")
             except Exception:
                 pass
+
+
+class PlannerCritic:
+    """
+    Iterative Planner-Critic loop for complex reasoning tasks.
+    
+    Flow: Plan -> Execute Step -> Evaluate Observation -> Re-plan if needed.
+    Persists evaluation history for auditing.
+    """
+    
+    def __init__(self, max_replan_cycles: int = 2):
+        self.max_replan_cycles = max_replan_cycles
+        self.evaluation_history: List[Dict[str, Any]] = []
+    
+    def evaluate_observation(self, plan_step: str, observation: str, original_goal: str) -> Dict[str, Any]:
+        """
+        Critic evaluation: does the observation satisfy the plan step?
+        Returns {"sufficient": bool, "reason": str, "suggested_replan": Optional[str]}
+        """
+        evaluation = {
+            "plan_step": plan_step,
+            "observation_preview": observation[:200],
+            "sufficient": False,
+            "reason": "",
+            "suggested_replan": None
+        }
+        
+        # Heuristic checks
+        if not observation or len(observation.strip()) < 20:
+            evaluation["reason"] = "Observation is empty or too short to be meaningful."
+            evaluation["suggested_replan"] = f"Reformulate query for: {plan_step}"
+        elif "no relevant" in observation.lower() or "not found" in observation.lower():
+            evaluation["reason"] = "Retrieval returned no relevant results."
+            evaluation["suggested_replan"] = f"Try broader or alternative terms for: {plan_step}"
+        elif "error" in observation.lower():
+            evaluation["reason"] = "Observation contains error indicators."
+            evaluation["suggested_replan"] = f"Retry with fallback strategy for: {plan_step}"
+        else:
+            evaluation["sufficient"] = True
+            evaluation["reason"] = "Observation appears to contain relevant information."
+        
+        self.evaluation_history.append(evaluation)
+        return evaluation
+    
+    def should_replan(self, state: ConversationState) -> bool:
+        """
+        Determine if re-planning is warranted based on evaluation history.
+        """
+        if not self.evaluation_history:
+            return False
+        
+        recent_failures = sum(
+            1 for e in self.evaluation_history[-3:]
+            if not e.get("sufficient", True)
+        )
+        
+        replan_count = sum(
+            1 for e in self.evaluation_history
+            if e.get("suggested_replan")
+        )
+        
+        return recent_failures > 0 and replan_count <= self.max_replan_cycles
+    
+    def get_replan_suggestions(self) -> List[str]:
+        """Get all pending replan suggestions."""
+        return [
+            e["suggested_replan"]
+            for e in self.evaluation_history
+            if e.get("suggested_replan") and not e.get("sufficient")
+        ]
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "max_replan_cycles": self.max_replan_cycles,
+            "evaluation_history": self.evaluation_history
+        }
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "PlannerCritic":
+        pc = cls(max_replan_cycles=data.get("max_replan_cycles", 2))
+        pc.evaluation_history = data.get("evaluation_history", [])
+        return pc
