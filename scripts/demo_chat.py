@@ -1,12 +1,30 @@
 import json
 import httpx
 import sys
+import os
+from dotenv import load_dotenv
+
+# 自动加载项目根目录下的 .env 文件
+load_dotenv()
 
 API_URL = "http://localhost:8000/ask"
 SESSION_ID = None
 
 def chat():
     global SESSION_ID
+    
+    # 核心修改点：获取 API Key 并组装 Headers
+    api_key = os.getenv("API_KEY")
+    if not api_key:
+        print("\033[1m\033[91m[Fatal Error]: API_KEY environment variable is not set.\033[0m")
+        print("Please ensure you have an .env file with API_KEY=\"your_secret_key\" in the root directory.")
+        sys.exit(1)
+        
+    headers = {
+        "X-API-KEY": api_key,
+        "Content-Type": "application/json"
+    }
+
     print("==================================================")
     print("Welcome to NovaSearch Enterprise Copilot CLI")
     print("Type 'exit' or 'quit' to close the session.")
@@ -31,8 +49,16 @@ def chat():
                 
                 received_answer = False
                 
-                # Streaming POST request
-                with client.stream("POST", API_URL, json=payload) as response:
+                # 核心修改点：在请求中携带 headers 进行鉴权
+                with client.stream("POST", API_URL, json=payload, headers=headers) as response:
+                    
+                    # 拦截并打印由于认证失败导致的 HTTP 错误 (例如 401)
+                    if response.status_code != 200:
+                        error_msg = response.read().decode("utf-8")
+                        print(f"\n\033[1m\033[91m[Server Error HTTP {response.status_code}]: {error_msg}\033[0m")
+                        print("\n")
+                        continue
+                        
                     for line in response.iter_lines():
                         if line:
                             try:
@@ -64,10 +90,9 @@ def chat():
 
                 print("\n") # New line after the stream finishes
 
-                if not received_answer:
+                if not received_answer and response.status_code == 200:
                     print("\033[95mCopilot: \033[0m[Generation failed or was blocked by consistency guardrails. No answer returned.]")
-                    
-                print("\n")
+                    print("\n")
                 
             except KeyboardInterrupt:
                 print("\nEnding session.")

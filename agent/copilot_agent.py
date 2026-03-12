@@ -113,6 +113,39 @@ STRICT GENERATION RULES (Must be followed exactly):
 If the user greets you or asks about your capabilities, you may respond naturally, but still reinforce your reliance on grounded data.
 """
 
+    def _check_sufficiency(self, query: str, context: str) -> Dict[str, Any]:
+        """
+        Evaluates if the provided context is sufficient to answer the query.
+        If not, returns a refined search query.
+        """
+        prompt = f"""
+        Evaluation Task: Is the provided <CONTEXT> sufficient to fully answer the <USER_QUERY>?
+        
+        <USER_QUERY>: {query}
+        
+        <CONTEXT>:
+        {context}
+        
+        Instructions:
+        1. If it IS sufficient, respond with "SUFFICIENT".
+        2. If it is NOT sufficient or missing key facts, respond with a NEW, highly specific search query to find the missing details.
+        3. Respond with ONLY "SUFFICIENT" or the refined query. No preamble.
+        """
+        try:
+            response = self.openai_client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.0,
+                max_tokens=64
+            )
+            result = response.choices[0].message.content.strip()
+            if result.upper() == "SUFFICIENT":
+                return {"sufficient": True, "refinement": None}
+            return {"sufficient": False, "refinement": result}
+        except Exception as e:
+            logger.warning(f"Sufficiency check failed: {e}")
+            return {"sufficient": True, "refinement": None}
+
     def _classify_intent(self, query: str, chat_history: List[Dict[str, str]]) -> str:
         """
         Lightweight classification:
@@ -270,6 +303,42 @@ If the user greets you or asks about your capabilities, you may respond naturall
                 
             yield {"type": "thought", "content": f"Successfully retrieved {len(graph_expanded_hits)} grounded chunks from Enterprise Knowledge Graph."}
             context_str = self._format_context(graph_expanded_hits)
+            
+            # --- ReAct Iterative Loop ---
+            max_iterations = 2 # Start small for responsiveness
+            for iteration in range(max_iterations):
+                yield {"type": "thought", "content": f"Evaluating context sufficiency (Iteration {iteration + 1})..."}
+                check = self._check_sufficiency(search_query, context_str)
+                
+                if check["sufficient"]:
+                    yield {"type": "thought", "content": "Context is sufficient for a grounded answer."}
+                    break
+                
+                refinement = check["refinement"]
+                yield {"type": "thought", "content": f"Information missing. Formulating follow-up query: '{refinement}'"}
+                
+                # Perform follow-up search
+                new_hits = self.retriever.search(refinement, top_k=top_k)
+                if not new_hits:
+                    yield {"type": "thought", "content": "Follow-up search yielded no new results. Proceeding with best available info."}
+                    break
+                    
+                # Merge unique hits
+                newly_added = 0
+                for hit in new_hits:
+                    unique_id = f"{hit.get('doc_id')}_{hit.get('chunk_index')}"
+                    if unique_id not in seen_chunk_ids:
+                        graph_expanded_hits.append(hit)
+                        seen_chunk_ids.add(unique_id)
+                        newly_added += 1
+                
+                if newly_added == 0:
+                    yield {"type": "thought", "content": "No novel information found in follow-up. Terminating loop."}
+                    break
+                
+                yield {"type": "thought", "content": f"Injected {newly_added} new grounded chunks into context pool."}
+                context_str = self._format_context(graph_expanded_hits)
+            # --- End ReAct Loop ---
         
         # 6. Build LLM Messages payload
         messages = [{"role": "system", "content": self._build_system_prompt()}]

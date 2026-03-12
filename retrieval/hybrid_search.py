@@ -9,6 +9,7 @@ This module orchestrates:
 """
 
 import os
+import uuid
 import logging
 from typing import List, Dict, Any
 
@@ -30,6 +31,7 @@ from retrieval.reranker.rrf_fusion import reciprocal_rank_fusion
 from retrieval.reranker.cross_encoder import CrossEncoderReranker
 from retrieval.reranker.colbert_reranker import ColBERTReranker
 from retrieval.reranker.monot5_reranker import MonoT5Reranker
+from retrieval.graph.cypher_generator import CypherGenerator
 
 logger = logging.getLogger(__name__)
 
@@ -120,6 +122,9 @@ class HybridSearchCoordinator:
             import subprocess
             subprocess.run(["python", "-m", "spacy", "download", "en_core_web_sm"], check=True)
             self.nlp = spacy.load("en_core_web_sm")
+            
+        # 5. Setup Dynamic Cypher Generator
+        self.cypher_gen = CypherGenerator()
 
     def __del__(self):
         """Cleanup connections on destruction."""
@@ -200,6 +205,42 @@ class HybridSearchCoordinator:
                     
         return enriched_hits
 
+    def _deep_graph_search(self, query: str) -> List[Dict[str, Any]]:
+        """
+        Attempts to generate and execute a dynamic Cypher query for multi-hop 
+        relationship reasoning.
+        """
+        if not self.neo4j_driver:
+            return []
+            
+        cypher = self.cypher_gen.generate(query)
+        if not cypher:
+            return []
+            
+        logger.info(f"Executing Dynamic Cypher: {cypher}")
+        graph_hits = []
+        
+        try:
+            with self.neo4j_driver.session() as session:
+                records = session.run(cypher)
+                for record in records:
+                    # Convert record to a flat dict
+                    data = record.data()
+                    text_content = " | ".join([str(v) for v in data.values()])
+                    graph_hits.append({
+                        "id": f"graph_{uuid.uuid4().hex[:8]}",
+                        "doc_id": "Knowledge Graph",
+                        "chunk_index": -1,
+                        "chunk_text": f"[Symbolic Reasoning]: {text_content}",
+                        "score": 1.0, # High score for symbolic matches
+                        "source": "dynamic_cypher",
+                        "graph_context": {"doc_title": "Neo4j Symbolic Path", "doc_section": "Multi-hop reasoning"}
+                    })
+            return graph_hits
+        except Exception as e:
+            logger.error(f"Dynamic Cypher execution failed: {e}")
+            return []
+
     def search(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
         """
         Main orchestration method for Tri-Engine Fusion (Now with Cross-Encoder).
@@ -219,6 +260,13 @@ class HybridSearchCoordinator:
         
         # 4. Knowledge Graph Expansion (Now with NER capability)
         final_grounded_results = self._graph_expansion(reranked_hits, query=query)
+        
+        # 5. Deep Symbolic Reasoning (Dynamic Cypher)
+        deep_hits = self._deep_graph_search(query)
+        if deep_hits:
+            logger.info(f"Injecting {len(deep_hits)} symbolic paths from Neo4j.")
+            # Prepend deep hits as they are often very precise for relationship queries
+            final_grounded_results = deep_hits + final_grounded_results
         
         logger.info("Hybrid Search Complete. Yielding %s results.", len(final_grounded_results))
         return final_grounded_results

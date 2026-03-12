@@ -45,7 +45,8 @@ def setup_environment():
 
 def test_health_check():
     """Verify API is awake."""
-    response = client.get("/health")
+    headers = {"X-API-KEY": os.getenv("API_KEY")}
+    response = client.get("/health", headers=headers)
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
 
@@ -62,7 +63,8 @@ def test_ingestion():
     }
     
     with TestClient(app) as live_client:
-        response = live_client.post("/ingest", data=payload)
+        headers = {"X-API-KEY": os.getenv("API_KEY")}
+        response = live_client.post("/ingest", data=payload, headers=headers)
         
         assert response.status_code == 200, f"Ingestion failed: {response.text}"
         data = response.json()
@@ -85,8 +87,8 @@ def test_retrieval_and_agent():
         # Give DBs a few seconds to sync
         import time
         time.sleep(3)
-        
-        with live_client.stream("POST", "/ask", json=query_payload) as response:
+        headers = {"X-API-KEY": os.getenv("API_KEY")}
+        with live_client.stream("POST", "/ask", json=query_payload, headers=headers) as response:
             if response.status_code != 200:
                 response.read()
                 assert False, f"Ask failed: {response.text}"
