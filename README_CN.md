@@ -1,4 +1,4 @@
-# 🚀 NovaSearch：企业级智能检索与推理引擎
+# NovaSearch：企业级智能检索与推理引擎
 
 <p align="center">
   <a href="README.md">[English]</a> | <a href="README_CN.md">[中文文档]</a>
@@ -10,7 +10,7 @@ NovaSearch 是一套生产级企业知识检索与推理系统，采用「三引
 
 ---
 
-## 🧠 系统架构与核心支柱
+## 系统架构与核心支柱
 
 ### 1. 查询理解与上下文记忆
 
@@ -59,7 +59,7 @@ NovaSearch 是一套生产级企业知识检索与推理系统，采用「三引
 
 ---
 
-## 🛠 技术栈
+## 技术栈
 
 | 组件 | 实现技术 |
 | :--- | :--- |
@@ -73,7 +73,7 @@ NovaSearch 是一套生产级企业知识检索与推理系统，采用「三引
 
 ---
 
-## 🗺️ 路线图
+## 路线图
 
 以下功能**已规划但尚未实现**：
 
@@ -87,7 +87,7 @@ NovaSearch 是一套生产级企业知识检索与推理系统，采用「三引
 
 ---
 
-## 📁 项目结构
+## 项目结构
 
 ```bash
 ├── api/                  # FastAPI 端点
@@ -113,7 +113,7 @@ NovaSearch 是一套生产级企业知识检索与推理系统，采用「三引
 
 ---
 
-## 🚀 快速开始
+## 快速开始
 
 ### 1. 前提条件
 
@@ -141,7 +141,7 @@ docker-compose up -d
 docker ps   # 验证容器
 ```
 
-### 4. 🔥 运行预热
+### 4. 运行预热
 
 **重要**：在启动 API 前运行预热脚本以消除首次查询冷启动延迟。
 
@@ -151,22 +151,22 @@ python scripts/warmup.py
 
 该脚本将：
 
-1. ✅ 验证所有数据库连接（PostgreSQL, Redis, Neo4j, Elasticsearch）
-2. ✅ 预加载 `all-MiniLM-L6-v2`（文本嵌入模型）
-3. ✅ 预加载 `clip-ViT-B-32`（视觉嵌入模型）
-4. ✅ 预加载交叉编码器重排序模型
-5. ✅ 预加载 MonoT5 重排序器（如已配置 `RERANKER_TYPE=monot5`）
-6. ✅ 预加载 spaCy NER 模型
+1. 验证所有数据库连接（PostgreSQL, Redis, Neo4j, Elasticsearch）
+2. 预加载 `all-MiniLM-L6-v2`（文本嵌入模型）
+3. 预加载 `clip-ViT-B-32`（视觉嵌入模型）
+4. 预加载交叉编码器重排序模型
+5. 预加载 MonoT5 重排序器（如已配置 `RERANKER_TYPE=monot5`）
+6. 预加载 spaCy NER 模型
 
 预期输出：
 ```
-[WARMUP] ✅ PostgreSQL — connected
-[WARMUP] ✅ Redis — connected
-[WARMUP] ✅ Neo4j — connected
-[WARMUP] ✅ SentenceTransformer (all-MiniLM-L6-v2) — loaded in 2.1s
-[WARMUP] ✅ CLIP (clip-ViT-B-32) — loaded in 3.4s
-[WARMUP] ✅ Cross-Encoder (ms-marco-MiniLM-L-6-v2) — loaded in 1.8s
-[WARMUP] ✅ All critical systems ready. NovaSearch is warm!
+[WARMUP] PostgreSQL — connected
+[WARMUP] Redis — connected
+[WARMUP] Neo4j — connected
+[WARMUP] SentenceTransformer (all-MiniLM-L6-v2) — loaded in 2.1s
+[WARMUP] CLIP (clip-ViT-B-32) — loaded in 3.4s
+[WARMUP] Cross-Encoder (ms-marco-MiniLM-L-6-v2) — loaded in 1.8s
+[WARMUP] All critical systems ready. NovaSearch is warm!
 ```
 
 ### 5. 启动 API 服务
@@ -186,7 +186,7 @@ http://localhost:8000/health    # 健康检查
 
 ---
 
-## 📥 摄取文档
+## 摄取文档
 
 ```bash
 curl -X POST "http://localhost:8000/ingest" \
@@ -205,7 +205,7 @@ curl -X POST "http://localhost:8000/ingest" \
 
 ---
 
-## 💬 提问
+## 提问
 
 ```bash
 curl -X POST "http://localhost:8000/ask" \
@@ -221,7 +221,7 @@ curl -X POST "http://localhost:8000/ask" \
 
 ---
 
-## 🖼️ 图像搜索（真正的多模态 RAG）
+## 图像搜索（真正的多模态 RAG）
 
 ```bash
 curl -X POST "http://localhost:8000/ask_vision" \
@@ -234,7 +234,7 @@ curl -X POST "http://localhost:8000/ask_vision" \
 
 ---
 
-## 🧪 运行测试
+## 运行测试
 
 ```bash
 # 完整测试套件（21 项测试）
@@ -249,7 +249,7 @@ python tests/load_test.py
 
 ---
 
-## 🛠 故障排查
+## 故障排查
 
 | 问题 | 解决方案 |
 | :--- | :--- |
@@ -262,7 +262,7 @@ python tests/load_test.py
 
 ---
 
-## ✅ 推荐启动流程
+## 推荐启动流程
 
 ```bash
 git clone https://github.com/GinneZhang/NovaSearch.git
@@ -271,7 +271,7 @@ python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env   # 填入密钥
 docker-compose up -d
-python scripts/warmup.py          # 🔥 预加载模型
+python scripts/warmup.py          # 预加载模型
 uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
