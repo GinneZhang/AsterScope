@@ -23,6 +23,11 @@ try:
 except ImportError:
     pass
 
+try:
+    import docx
+except ImportError:
+    pass
+
 logger = logging.getLogger(__name__)
 
 class MultimodalParser:
@@ -59,7 +64,11 @@ class MultimodalParser:
         if mime_type == "application/pdf":
             return self._parse_pdf(file_bytes)
             
-        # 3. Raw Text/Markdown
+        # 3. DOCX Parsing
+        if mime_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+            return self._parse_docx(file_bytes)
+            
+        # 4. Raw Text/Markdown
         if mime_type in ["text/plain", "text/markdown", "text/csv"]:
             return file_bytes.decode("utf-8", errors="ignore")
             
@@ -95,4 +104,18 @@ class MultimodalParser:
             return text.strip()
         except Exception as e:
             logger.error(f"PDF Parsing failed: {e}")
+            return ""
+
+    def _parse_docx(self, file_bytes: bytes) -> str:
+        """Extracts text from DOCX files."""
+        if 'docx' not in globals():
+            logger.warning("DOCX parsing requested but python-docx is not installed.")
+            return ""
+            
+        try:
+            doc = docx.Document(io.BytesIO(file_bytes))
+            text = "\n".join([para.text for para in doc.paragraphs])
+            return text.strip()
+        except Exception as e:
+            logger.error(f"DOCX Parsing failed: {e}")
             return ""

@@ -56,13 +56,13 @@ def test_ingestion():
     Verifies that SemanticChunker, PGVector inserts, and Neo4j graph building succeed.
     """
     payload = {
-        "document_text": MOCK_TEXT,
+        "text_input": MOCK_TEXT,
         "title": MOCK_TITLE,
         "section": MOCK_SECTION
     }
     
     with TestClient(app) as live_client:
-        response = live_client.post("/ingest", json=payload)
+        response = live_client.post("/ingest", data=payload)
         
         assert response.status_code == 200, f"Ingestion failed: {response.text}"
         data = response.json()

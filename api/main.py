@@ -8,6 +8,7 @@ import logging
 import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form
+from typing import Optional
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 import json
@@ -189,7 +190,12 @@ def _insert_chunks_to_postgres(doc_id: str, title: str, section: str, chunks: li
 
 
 @app.post("/ingest", dependencies=[Depends(get_api_key)])
-def ingest_document(request: DocumentUploadRequest):
+def ingest_document(
+    text_input: Optional[str] = Form(None),
+    file: Optional[UploadFile] = File(None),
+    title: Optional[str] = Form("Untitled Document"),
+    section: Optional[str] = Form("General")
+):
     """
     Ingests a new document into the system.
     Runs text through SemanticChunker, saves to PGVector, and builds Knowledge Graph.
@@ -216,25 +222,33 @@ def ingest_document(request: DocumentUploadRequest):
     doc_id = str(uuid.uuid4())
     metadata = {
         "doc_id": doc_id,
-        "title": request.title,
-        "section": request.section
+        "title": title or "Untitled Document",
+        "section": section or "General"
     }
     
     
     try:
-        # Extract Text from Uploaded File if provided, otherwise use raw text
-        if request.file_bytes:
-            logger.info("Parsing uploaded file: %s (MIME: %s)", request.title, request.mime_type)
-            document_text = multimodal_parser.parse(request.file_bytes, request.mime_type)
-            if not document_text:
-                raise ValueError("Parsed file yielded no text.")
-        else:
-            document_text = request.document_text
-            if not document_text:
-                raise ValueError("No document text or file provided.")
+        document_text = ""
+        # Extract Text from Uploaded File if provided
+        if file:
+            logger.info("Parsing uploaded file: %s (MIME: %s)", title, file.content_type)
+            file_bytes = file.file.read()
+            parsed_text = multimodal_parser.parse(file_bytes, file.content_type)
+            if parsed_text:
+                document_text += parsed_text
+                
+        if text_input:
+            if document_text:
+                document_text += "\n\n" + text_input
+            else:
+                document_text += text_input
+                
+        document_text = document_text.strip()
+        if not document_text:
+            raise ValueError("No document text or file provided.")
                 
         # 1. Chunk Document (Heavy CPU)
-        logger.info("Chunking document: %s", request.title)
+        logger.info("Chunking document: %s", title)
         chunks = chunker.chunk_document(document_text, metadata)
         
         # Ensure sequence_index is present for graph and db
@@ -253,7 +267,7 @@ def ingest_document(request: DocumentUploadRequest):
                 faiss_retriever.add_documents(doc_id, chunks)
             else:
                 logger.info("Persisting %d chunks to PostgreSQL...", len(chunks))
-                _insert_chunks_to_postgres(doc_id, request.title, request.section, chunks)
+                _insert_chunks_to_postgres(doc_id, title or "Untitled Document", section or "General", chunks)
 
             # Persist to Sparse Backend
             sparse_backend = os.getenv("SPARSE_BACKEND", "postgres").lower()
@@ -280,6 +294,6 @@ def ingest_document(request: DocumentUploadRequest):
 
     return {
         "status": "success",
-        "message": f"Document '{request.title}' ingested successfully.",
+        "message": f"Document '{title}' ingested successfully.",
         "details": f"Processed {len(chunks)} contextual chunks across PGVector Document schema and Neo4j."
     }
