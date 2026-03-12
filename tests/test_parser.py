@@ -19,23 +19,22 @@ def mock_tesseract_missing():
 def test_parser_pdf_degradation(mock_pypdf_missing):
     """Test that PDF parsing fails gracefully if pypdf is missing."""
     parser = MultimodalParser()
-    # Mocking open since we don't need a real file
-    with patch("builtins.open", MagicMock()):
-        with pytest.raises(Exception) as excinfo:
-            parser.parse_pdf("dummy.pdf")
-        assert "pypdf" in str(excinfo.value).lower() or "missing" in str(excinfo.value).lower() or "not found" in str(excinfo.value).lower()
+    # Replace globals check logic or mock the internal check
+    with patch("ingestion.parsers.multimodal_parser.globals", return_value={}):
+        result = parser.parse(b"dummy pdf content", "application/pdf")
+        assert result == ""
 
 def test_parser_image_degradation(mock_tesseract_missing):
     """Test that image parsing fails gracefully if Tesseract is missing."""
     parser = MultimodalParser()
-    with patch("PIL.Image.open", MagicMock()):
-        with pytest.raises(Exception) as excinfo:
-            parser.parse_image("dummy.png")
-        assert "tesseract" in str(excinfo.value).lower() or "not found" in str(excinfo.value).lower()
+    # Force tesseract_available to False for the test
+    parser.tesseract_available = False
+    result = parser.parse(b"dummy image content", "image/png")
+    assert result == ""
 
-def test_supported_formats():
-    """Verify supported formats list is present."""
+def test_mime_routing():
+    """Verify that different MIME types are routed correctly (mocked)."""
     parser = MultimodalParser()
-    assert ".pdf" in parser.supported_formats
-    assert ".png" in parser.supported_formats
-    assert ".docx" in parser.supported_formats
+    with patch.object(parser, "_parse_docx", return_value="docx text"):
+        result = parser.parse(b"dummy", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+        assert result == "docx text"
