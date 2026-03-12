@@ -81,8 +81,13 @@ def ask_copilot(request: QueryRequest):
     Takes a natural language query, performs Tri-Engine Retrieval,
     and returns a grounded, hallucination-free response via a StreamingResponse.
     """
+    global copilot_agent
     if not copilot_agent:
-        raise HTTPException(status_code=503, detail="Copilot Agent is not initialized due to missing configurations.")
+        try:
+            copilot_agent = EnterpriseCopilotAgent()
+        except Exception as e:
+            logger.error(f"Error details: {str(e)}")
+            raise HTTPException(status_code=503, detail="Copilot Agent is not initialized due to missing configurations.")
 
     session_id = request.session_id or str(uuid.uuid4())
     logger.info("Handling /ask request for query: '%s', session: '%s'", request.query, session_id)
@@ -178,8 +183,16 @@ def ingest_document(request: DocumentUploadRequest):
     Uses standard `def` (instead of `async def`) to safely offload heavy synchronous 
     CPU bounds (SentenceTransformers) and blocking DB I/O to FastAPI's threadpool.
     """
+    global chunker, kg_builder
     if not chunker or not kg_builder:
-        raise HTTPException(status_code=503, detail="Ingestion services unavailable.")
+        try:
+            if not chunker:
+                chunker = SemanticChunker()
+            if not kg_builder:
+                kg_builder = KGBuilder()
+        except Exception as e:
+            logger.error(f"Error details: {str(e)}")
+            raise HTTPException(status_code=503, detail="Ingestion services unavailable.")
         
     doc_id = str(uuid.uuid4())
     metadata = {

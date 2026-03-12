@@ -8,12 +8,7 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
-# Must set before importing main to ensure safe DB connections
-os.environ["DATABASE_URL"] = "dbname=novasearch user=postgres password=postgres host=localhost port=5432"
-os.environ["NEO4J_URI"] = "bolt://localhost:7687"
-os.environ["NEO4J_USER"] = "neo4j"
-os.environ["NEO4J_PASSWORD"] = "password"
-os.environ["REDIS_HOST"] = "localhost"
+
 
 from api.main import app
 
@@ -87,7 +82,9 @@ def test_retrieval_and_agent():
         time.sleep(1)
         
         with live_client.stream("POST", "/ask", json=query_payload) as response:
-            assert response.status_code == 200, f"Ask failed: {response.text}"
+            if response.status_code != 200:
+                response.read()
+                assert False, f"Ask failed: {response.text}"
             
             thoughts = []
             answer = ""
