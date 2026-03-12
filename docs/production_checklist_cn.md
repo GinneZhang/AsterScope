@@ -1,6 +1,8 @@
 # 🚀 NovaSearch v1.0.0 — 生产环境检查清单
 
-**[English](production_checklist.md) | [中文文档](production_checklist_cn.md)**
+<p align="center">
+  <b>[English](production_checklist.md) | [中文文档](production_checklist_cn.md)</b>
+</p>
 
 > **目的**：将 NovaSearch 部署到生产环境前的完整验证检查清单。
 

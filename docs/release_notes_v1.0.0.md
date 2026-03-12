@@ -1,6 +1,8 @@
 # 🚀 NovaSearch v1.0.0 — Release Notes
 
-**[English](release_notes_v1.0.0.md) | [中文文档](release_notes_v1.0.0_cn.md)**
+<p align="center">
+  <b>[English](release_notes_v1.0.0.md) | [中文文档](release_notes_v1.0.0_cn.md)</b>
+</p>
 
 **Release Date**: 2026-03-12
 **Commit**: `feat(prod): phase 14 terminal deterministic reasoning and 6-doc bilingual sync`

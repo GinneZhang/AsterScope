@@ -1,6 +1,8 @@
 # 🚀 NovaSearch v1.0.0 — 发布说明
 
-**[English](release_notes_v1.0.0.md) | [中文文档](release_notes_v1.0.0_cn.md)**
+<p align="center">
+  <b>[English](release_notes_v1.0.0.md) | [中文文档](release_notes_v1.0.0_cn.md)</b>
+</p>
 
 **发布日期**：2026-03-12
 **提交**：`feat(prod): phase 14 terminal deterministic reasoning and 6-doc bilingual sync`
