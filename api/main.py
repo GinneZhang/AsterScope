@@ -56,9 +56,9 @@ app = FastAPI(
 # Secure CORS config
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # Update for production
+    allow_origins=["http://localhost:3000", "http://localhost:5173"], # Specific origins for production-readiness
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -350,8 +350,8 @@ def ingest_document(
                         vision_retriever.insert_vision_chunk(doc_id, idx, text_context, v_emb)
             
         except Exception as db_err:
-            # If Graph fails, we log an alert (a robust system would execute a PG rollback query here)
-            logger.error("CRITICAL: Dual-Write failure for Doc %s. Partial ingestion may have occurred: %s", doc_id, str(db_err))
+            # Explicit rollback or CRITICAL alert
+            logger.critical("CRITICAL DATA INCONSISTENCY: Dual-Write failure for Doc %s. Potential orphan records across PG/Neo4j/ES: %s", doc_id, str(db_err))
             raise HTTPException(status_code=500, detail=f"Database consistency failure: {str(db_err)}")
 
     except HTTPException:

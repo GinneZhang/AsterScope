@@ -13,6 +13,11 @@ except ImportError:
     pass
 
 import redis
+import numpy as np
+try:
+    from sentence_transformers import SentenceTransformer
+except ImportError:
+    pass
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +45,15 @@ class RedisMemoryManager:
             
         # Default TTL for session keys: 24 hours (in seconds)
         self.ttl = 60 * 60 * 24
+        
+        # Initialize embedding model for semantic context search
+        self.model_name = "all-MiniLM-L6-v2"
+        try:
+            self.model = SentenceTransformer(self.model_name)
+            logger.info("Loaded SentenceTransformer for Redis Memory.")
+        except Exception as e:
+            logger.error(f"Failed to load embedding model for memory: {e}")
+            self.model = None
 
     def add_message(self, session_id: str, role: str, content: str, user_id: str = "default_user"):
         """
@@ -54,13 +68,17 @@ class RedisMemoryManager:
         try:
             # If this is the absolute first user message in this session, map it to the user's cross-session index
             if role == "user" and self.client.llen(key) == 0:
-                # Naive topic extraction: first 4 words of the query (or we could use LLM/NER here)
-                words = content.split()[:4]
-                topic = " ".join(words).lower().strip()
-                if topic:
-                    # Map the session to the topic
+                if self.model:
+                    # Generate semantic topic vector
+                    topic_vector = self.model.encode(content).tolist()
+                    
+                    # Store session-topic mapping (for metadata/display)
                     mapping_key = f"user:{user_id}:sessions"
-                    self.client.hset(mapping_key, session_id, topic)
+                    self.client.hset(mapping_key, session_id, content[:100]) # Store snippet
+                    
+                    # Store the vector for similarity search
+                    vector_key = f"user:{user_id}:session_vectors"
+                    self.client.hset(vector_key, session_id, json.dumps(topic_vector))
         
             message = json.dumps({"role": role, "content": content})
             # RPUSH appends to the end of the list
@@ -70,21 +88,34 @@ class RedisMemoryManager:
         except Exception as e:
             logger.error("Failed to append message to Redis for session %s: %s", session_id, str(e))
 
-    def get_related_sessions(self, user_id: str, topic: str) -> List[str]:
+    def get_related_sessions(self, user_id: str, current_query: str, threshold: float = 0.6) -> List[str]:
         """
-        Fetches past session IDs that are related by thematic topic linkage.
+        Fetches past session IDs that are semantically related to the current query.
         """
-        if not self.client:
+        if not self.client or not self.model:
             return []
             
-        mapping_key = f"user:{user_id}:sessions"
+        vector_key = f"user:{user_id}:session_vectors"
         try:
-            all_sessions = self.client.hgetall(mapping_key)
+            # 1. Embed current query
+            query_vec = self.model.encode(current_query)
+            
+            # 2. Fetch all session vectors for the user
+            # Node: For massive scale, we'd use Redis Stack (RediSearch/Vector similarity)
+            # For this enterprise prototype, we do in-memory scan for the user's sessions.
+            all_vecs_raw = self.client.hgetall(vector_key)
+            if not all_vecs_raw:
+                return []
+                
             related = []
-            normalized_topic = topic.lower().strip()
-            for sid, t in all_sessions.items():
-                if normalized_topic in t or t in normalized_topic:
+            for sid, v_json in all_vecs_raw.items():
+                v = np.array(json.loads(v_json))
+                # Cosine Similarity
+                sim = np.dot(query_vec, v) / (np.linalg.norm(query_vec) * np.linalg.norm(v))
+                if sim >= threshold:
                     related.append(sid)
+            
+            logger.info(f"Found {len(related)} semantically related sessions for user {user_id}")
             return related
         except Exception as e:
             logger.error("Failed to fetch related sessions for user %s: %s", user_id, str(e))

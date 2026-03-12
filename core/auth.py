@@ -21,8 +21,11 @@ def get_api_key(api_key_header: str = Security(api_key_header)):
     valid_api_key = os.getenv("API_KEY")
     
     if not valid_api_key:
-        logger.warning("No API_KEY environment variable set. Defaulting to open access for dev.")
-        return api_key_header # Open access if not configured
+        logger.error("API_KEY environment variable is NOT set. Authentication will fail.")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="API authentication not configured by server.",
+        )
         
     if api_key_header == valid_api_key:
         return api_key_header
