@@ -49,6 +49,9 @@ def chat():
                             if chunk_type == "thought":
                                 # Print thoughts in dim/italic gray
                                 print(f"\033[90m\033[3m[Thought: {content}]\033[0m")
+                            elif chunk_type == "token":
+                                print(chunk.get("content", ""), end="", flush=True)
+                                has_answer = True
                             elif chunk_type == "answer":
                                 # Print final answer
                                 print(f"{content}")
@@ -57,7 +60,7 @@ def chat():
                                 # Print sources if available
                                 sources = chunk.get("sources", [])
                                 if sources:
-                                    print("\n\033[93mSources Used:\033[0m")
+                                    print("\n\n\033[93mSources Used:\033[0m")
                                     for idx, s in enumerate(sources):
                                         doc = s.get("doc_id", "Unknown") if isinstance(s, dict) else s
                                         print(f"  [{idx+1}] {doc}")
