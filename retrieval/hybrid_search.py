@@ -10,8 +10,9 @@ This module orchestrates:
 
 import os
 import uuid
+import json
 import logging
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 try:
     from dotenv import load_dotenv
@@ -205,7 +206,7 @@ class HybridSearchCoordinator:
                     
         return enriched_hits
 
-    def _deep_graph_search(self, query: str) -> List[Dict[str, Any]]:
+    def _deep_graph_search(self, query: str, query_graph: Optional[List[Dict[str, str]]] = None) -> List[Dict[str, Any]]:
         """
         Attempts to generate and execute a dynamic Cypher query for multi-hop 
         relationship reasoning.
@@ -213,7 +214,13 @@ class HybridSearchCoordinator:
         if not self.neo4j_driver:
             return []
             
-        cypher = self.cypher_gen.generate(query)
+        # Enhance prompt with query graph if available
+        context_query = query
+        if query_graph:
+            graph_json = json.dumps(query_graph)
+            context_query = f"{query}\n[Semantic Context]: {graph_json}"
+            
+        cypher = self.cypher_gen.generate(context_query)
         if not cypher:
             return []
             
@@ -241,7 +248,7 @@ class HybridSearchCoordinator:
             logger.error(f"Dynamic Cypher execution failed: {e}")
             return []
 
-    def search(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
+    def search(self, query: str, top_k: int = 5, query_graph: Optional[List[Dict[str, str]]] = None) -> List[Dict[str, Any]]:
         """
         Main orchestration method for Tri-Engine Fusion (Now with Cross-Encoder).
         """
@@ -262,7 +269,7 @@ class HybridSearchCoordinator:
         final_grounded_results = self._graph_expansion(reranked_hits, query=query)
         
         # 5. Deep Symbolic Reasoning (Dynamic Cypher)
-        deep_hits = self._deep_graph_search(query)
+        deep_hits = self._deep_graph_search(query, query_graph=query_graph)
         if deep_hits:
             logger.info(f"Injecting {len(deep_hits)} symbolic paths from Neo4j.")
             # Prepend deep hits as they are often very precise for relationship queries

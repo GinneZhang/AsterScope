@@ -23,6 +23,7 @@ import openai
 from retrieval.hybrid_search import HybridSearchCoordinator
 from core.memory import RedisMemoryManager
 from agent.planner import TaskDecomposer
+from agent.query_parser import QueryGraphParser
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +62,9 @@ class EnterpriseCopilotAgent:
         
         # Instantiate LangChain Task Planner
         self.planner = TaskDecomposer(model_name="gpt-3.5-turbo")
+        
+        # Instantiate Query Graph Parser
+        self.query_parser = QueryGraphParser()
 
     def _format_context(self, hits: List[Dict[str, Any]]) -> str:
         """
@@ -262,6 +266,12 @@ If the user greets you or asks about your capabilities, you may respond naturall
             if search_query != query:
                 yield {"type": "thought", "content": f"Query rewritten to: '{search_query}'"}
                 
+            # Extract Structured Query Graph (Semantic Triplets)
+            yield {"type": "thought", "content": "Parsing structured semantic query graph..."}
+            query_graph = self.query_parser.parse(search_query)
+            if query_graph:
+                yield {"type": "thought", "content": f"Extracted semantic triplets: {query_graph}"}
+            
             # Use LangChain to Decompose Complex Queries
             planner_result = self.planner.decompose(search_query)
             if isinstance(planner_result, dict) and planner_result.get("type") == "clarification":
@@ -278,7 +288,7 @@ If the user greets you or asks about your capabilities, you may respond naturall
             seen_chunk_ids = set()
             
             for sq in sub_queries:
-                sq_hits = self.retriever.search(sq, top_k=top_k)
+                sq_hits = self.retriever.search(sq, top_k=top_k, query_graph=query_graph)
                 for hit in sq_hits:
                     unique_id = f"{hit.get('doc_id')}_{hit.get('chunk_index')}"
                     if unique_id not in seen_chunk_ids:
@@ -338,6 +348,14 @@ If the user greets you or asks about your capabilities, you may respond naturall
                 
                 yield {"type": "thought", "content": f"Injected {newly_added} new grounded chunks into context pool."}
                 context_str = self._format_context(graph_expanded_hits)
+            else:
+                # Clarification Exhaustion: Loop finished without break (max_iterations reached)
+                yield {"type": "thought", "content": "Max iterations reached. Information is still insufficient. Triggering clarification exhaustion..."}
+                yield {
+                    "type": "clarification", 
+                    "content": f"I was able to find some information, but I'm still missing specific details to fully answer: '{search_query}'. Could you please provide more context or clarify your requirements?"
+                }
+                return
             # --- End ReAct Loop ---
         
         # 6. Build LLM Messages payload
