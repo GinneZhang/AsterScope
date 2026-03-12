@@ -29,6 +29,7 @@ from retrieval.sparse.elastic_search import ElasticSparseRetriever
 from retrieval.reranker.rrf_fusion import reciprocal_rank_fusion
 from retrieval.reranker.cross_encoder import CrossEncoderReranker
 from retrieval.reranker.colbert_reranker import ColBERTReranker
+from retrieval.reranker.monot5_reranker import MonoT5Reranker
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +86,13 @@ class HybridSearchCoordinator:
         if reranker_type == "colbert":
             logger.info("Initializing ColBERT Reranker...")
             self.cross_encoder = ColBERTReranker()
+        elif reranker_type == "monot5":
+            logger.info("Initializing MonoT5 Reranker...")
+            self.cross_encoder = MonoT5Reranker()
+            # Graceful fallback check
+            if not getattr(self.cross_encoder, "model", None):
+                logger.warning("MonoT5 initialization failed. Falling back to CrossEncoder.")
+                self.cross_encoder = CrossEncoderReranker()
         else:
             logger.info("Initializing CrossEncoder Reranker...")
             self.cross_encoder = CrossEncoderReranker()
