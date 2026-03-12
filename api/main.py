@@ -26,6 +26,7 @@ from api.schemas import QueryRequest, QueryResponse, DocumentUploadRequest, Sour
 from agent.copilot_agent import EnterpriseCopilotAgent
 from core.auth import get_api_key
 from ingestion.chunking.semantic_chunker import SemanticChunker
+from ingestion.chunking.sliding_window import SlidingWindowChunker
 from ingestion.graph_build.kg_builder import KGBuilder
 
 # Configure logging
@@ -59,7 +60,15 @@ app.add_middleware(
 # Initialize Copilot Agent (Singleton instance for the app lifecycle)
 try:
     copilot_agent = EnterpriseCopilotAgent()
-    chunker = SemanticChunker()
+    
+    chunk_strategy = os.getenv("CHUNKING_STRATEGY", "semantic").lower()
+    if chunk_strategy == "sliding_window":
+        chunker = SlidingWindowChunker()
+        logger.info("Using SlidingWindowChunker")
+    else:
+        chunker = SemanticChunker()
+        logger.info("Using SemanticChunker")
+        
     kg_builder = KGBuilder()
 except Exception as e:
     logger.error("Failed to initialize tools: %s", str(e))
@@ -187,8 +196,12 @@ def ingest_document(request: DocumentUploadRequest):
     global chunker, kg_builder
     if not chunker or not kg_builder:
         try:
+            chunk_strategy = os.getenv("CHUNKING_STRATEGY", "semantic").lower()
             if not chunker:
-                chunker = SemanticChunker()
+                if chunk_strategy == "sliding_window":
+                    chunker = SlidingWindowChunker()
+                else:
+                    chunker = SemanticChunker()
             if not kg_builder:
                 kg_builder = KGBuilder()
         except Exception as e:
@@ -213,9 +226,25 @@ def ingest_document(request: DocumentUploadRequest):
 
         # Dual-Write Consistency Block
         try:
-            # 2. Persist to Postgres (Dense Vectors)
-            logger.info("Persisting %d chunks to PostgreSQL...", len(chunks))
-            _insert_chunks_to_postgres(doc_id, request.title, request.section, chunks)
+            # 2. Persist to Dense Backend
+            dense_backend = os.getenv("DENSE_BACKEND", "pgvector").lower()
+            if dense_backend == "faiss":
+                logger.info("Persisting %d chunks to FAISS...", len(chunks))
+                from retrieval.dense.faiss_search import FAISSDenseRetriever
+                emb_model_name = chunker.embedding_model_name if hasattr(chunker, "embedding_model_name") else "all-MiniLM-L6-v2"
+                faiss_retriever = FAISSDenseRetriever(emb_model_name)
+                faiss_retriever.add_documents(doc_id, chunks)
+            else:
+                logger.info("Persisting %d chunks to PostgreSQL...", len(chunks))
+                _insert_chunks_to_postgres(doc_id, request.title, request.section, chunks)
+
+            # Persist to Sparse Backend
+            sparse_backend = os.getenv("SPARSE_BACKEND", "postgres").lower()
+            if sparse_backend in ["elastic", "elasticsearch"]:
+                logger.info("Persisting %d chunks to Elasticsearch...", len(chunks))
+                from retrieval.sparse.elastic_search import ElasticSparseRetriever
+                elastic_retriever = ElasticSparseRetriever()
+                elastic_retriever.add_documents(doc_id, chunks)
 
             # 3. Persist to Neo4j (Knowledge Graph Construction)
             logger.info("Building Knowledge Graph for document...")

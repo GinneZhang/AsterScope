@@ -65,16 +65,16 @@ class HybridSearchCoordinator:
             self.pg_conn = None
 
         # 2. Setup Retrievers & Reranker
-        vector_store = os.getenv("VECTOR_STORE_TYPE", "pgvector").lower()
-        if vector_store == "faiss":
+        dense_backend = os.getenv("DENSE_BACKEND", os.getenv("VECTOR_STORE_TYPE", "pgvector")).lower()
+        if dense_backend == "faiss":
             logger.info("Initializing FAISS local vector store...")
-            self.dense_retriever = FAISSDenseRetriever(embedding_model_name, index_path="faiss_index")
+            self.dense_retriever = FAISSDenseRetriever(embedding_model_name, index_dir="faiss_index")
         else:
             logger.info("Initializing PGVector remote vector store...")
             self.dense_retriever = PGVectorDenseRetriever(self.pg_conn, embedding_model_name)
             
-        sparse_store = os.getenv("SPARSE_STORE_TYPE", "fts").lower()
-        if sparse_store == "elastic":
+        sparse_backend = os.getenv("SPARSE_BACKEND", os.getenv("SPARSE_STORE_TYPE", "postgres")).lower()
+        if sparse_backend in ["elastic", "elasticsearch"]:
             logger.info("Initializing Elasticsearch sparse store...")
             self.sparse_retriever = ElasticSparseRetriever()
         else:
