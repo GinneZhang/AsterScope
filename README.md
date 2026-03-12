@@ -1,4 +1,4 @@
-# 🚀 NovaSearch: Enterprise Copilot & Intelligent Retrieval Engine
+# NovaSearch: Enterprise Copilot & Intelligent Retrieval Engine
 
 <p align="center">
   <a href="README.md">[English]</a> | <a href="README_CN.md">[中文文档]</a>
@@ -10,7 +10,7 @@ Our objective is to deliver highly accurate, explainable, and hallucination-resi
 
 ---
 
-## 🧠 System Architecture & Core Pillars
+## System Architecture & Core Pillars
 
 ### 1. Query Understanding & Context Memory
 
@@ -59,7 +59,7 @@ Our objective is to deliver highly accurate, explainable, and hallucination-resi
 
 ---
 
-## 🛠 Tech Stack
+## Tech Stack
 
 | Component | Implemented Technology |
 | :--- | :--- |
@@ -73,7 +73,7 @@ Our objective is to deliver highly accurate, explainable, and hallucination-resi
 
 ---
 
-## 🗺️ Roadmap
+## Roadmap
 
 The following capabilities are **planned but not yet implemented**:
 
@@ -87,7 +87,7 @@ The following capabilities are **planned but not yet implemented**:
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```bash
 ├── api/                  # FastAPI endpoints
@@ -113,7 +113,7 @@ The following capabilities are **planned but not yet implemented**:
 
 ---
 
-## 🚀 Getting Started
+## Getting Started
 
 ### 1. Prerequisites
 
@@ -141,7 +141,7 @@ docker-compose up -d
 docker ps   # Verify containers
 ```
 
-### 4. 🔥 Run the Warmup
+### 4. Run the Warmup
 
 **CRITICAL**: Run the warmup script before starting the API to eliminate first-query latency.
 
@@ -151,22 +151,22 @@ python scripts/warmup.py
 
 This script will:
 
-1. ✅ Verify all database connections (PostgreSQL, Redis, Neo4j, Elasticsearch)
-2. ✅ Pre-load `all-MiniLM-L6-v2` (text embeddings)
-3. ✅ Pre-load `clip-ViT-B-32` (vision embeddings)
-4. ✅ Pre-load Cross-Encoder reranker
-5. ✅ Pre-load MonoT5 reranker (if `RERANKER_TYPE=monot5`)
-6. ✅ Pre-load spaCy NER model
+1. Verify all database connections (PostgreSQL, Redis, Neo4j, Elasticsearch)
+2. Pre-load `all-MiniLM-L6-v2` (text embeddings)
+3. Pre-load `clip-ViT-B-32` (vision embeddings)
+4. Pre-load Cross-Encoder reranker
+5. Pre-load MonoT5 reranker (if `RERANKER_TYPE=monot5`)
+6. Pre-load spaCy NER model
 
 Expected output:
 ```
-[WARMUP] ✅ PostgreSQL — connected
-[WARMUP] ✅ Redis — connected
-[WARMUP] ✅ Neo4j — connected
-[WARMUP] ✅ SentenceTransformer (all-MiniLM-L6-v2) — loaded in 2.1s
-[WARMUP] ✅ CLIP (clip-ViT-B-32) — loaded in 3.4s
-[WARMUP] ✅ Cross-Encoder (ms-marco-MiniLM-L-6-v2) — loaded in 1.8s
-[WARMUP] ✅ All critical systems ready. NovaSearch is warm!
+[WARMUP] PostgreSQL — connected
+[WARMUP] Redis — connected
+[WARMUP] Neo4j — connected
+[WARMUP] SentenceTransformer (all-MiniLM-L6-v2) — loaded in 2.1s
+[WARMUP] CLIP (clip-ViT-B-32) — loaded in 3.4s
+[WARMUP] Cross-Encoder (ms-marco-MiniLM-L-6-v2) — loaded in 1.8s
+[WARMUP] All critical systems ready. NovaSearch is warm!
 ```
 
 ### 5. Launch the API Server
@@ -186,7 +186,7 @@ http://localhost:8000/health    # Health Check
 
 ---
 
-## 📥 Ingest a Document
+## Ingest a Document
 
 ```bash
 curl -X POST "http://localhost:8000/ingest" \
@@ -205,7 +205,7 @@ Ingestion pipeline:
 
 ---
 
-## 💬 Ask a Question
+## Ask a Question
 
 ```bash
 curl -X POST "http://localhost:8000/ask" \
@@ -221,7 +221,7 @@ The `/ask` endpoint returns a streaming NDJSON response with intermediate though
 
 ---
 
-## 🖼️ Search by Image (True Multimodal RAG)
+## Search by Image (True Multimodal RAG)
 
 ```bash
 curl -X POST "http://localhost:8000/ask_vision" \
@@ -234,7 +234,7 @@ Embeds your image into a 512-dimensional CLIP vector and retrieves the closest t
 
 ---
 
-## 🧪 Run Tests
+## Run Tests
 
 ```bash
 # Full test suite (21 tests)
@@ -249,7 +249,7 @@ python tests/load_test.py
 
 ---
 
-## 🛠 Troubleshooting
+## Troubleshooting
 
 | Issue | Solution |
 | :--- | :--- |
@@ -262,7 +262,7 @@ python tests/load_test.py
 
 ---
 
-## ✅ Recommended Startup Flow
+## Recommended Startup Flow
 
 ```bash
 git clone https://github.com/GinneZhang/NovaSearch.git
@@ -271,7 +271,7 @@ python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env   # Fill in keys
 docker-compose up -d
-python scripts/warmup.py          # 🔥 Pre-load models
+python scripts/warmup.py          # Pre-load models
 uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
