@@ -131,3 +131,70 @@ class TableRetriever:
         # Re-sort by updated score
         hits.sort(key=lambda x: x.get("score", 0.0), reverse=True)
         return hits
+    
+    @staticmethod
+    def generate_table_embedding_text(markdown_table: str, title: str = "") -> str:
+        """
+        Generate a specialized embedding representation for a Markdown table.
+        
+        Instead of embedding raw Markdown, creates a 'Table Summary + Column Description'
+        header that preserves structural intent for the embedding model.
+        
+        Example output:
+            "Table: Revenue by Quarter. Columns: Quarter, Revenue ($M), Growth (%).
+             Row 1: Q1 2024, 142.5, 12.3%. Row 2: Q2 2024, 156.8, 10.0%."
+        """
+        lines = [l.strip() for l in markdown_table.strip().split("\n") if l.strip()]
+        
+        if not lines:
+            return markdown_table
+        
+        # Extract column headers (first row of Markdown table)
+        header_line = lines[0]
+        columns = [col.strip() for col in header_line.split("|") if col.strip()]
+        
+        # Skip separator line (e.g., |---|---|)
+        data_lines = [l for l in lines[1:] if not all(c in "-| " for c in l)]
+        
+        # Build semantic representation
+        parts = []
+        if title:
+            parts.append(f"Table: {title}.")
+        
+        if columns:
+            parts.append(f"Columns: {', '.join(columns)}.")
+        
+        for i, row_line in enumerate(data_lines[:10]):  # Cap at 10 rows for embedding
+            cells = [c.strip() for c in row_line.split("|") if c.strip()]
+            if cells:
+                parts.append(f"Row {i+1}: {', '.join(cells)}.")
+        
+        return " ".join(parts) if parts else markdown_table
+    
+    @staticmethod
+    def extract_structured_values(markdown_table: str) -> List[Dict[str, str]]:
+        """
+        Extract structured key-value pairs from a Markdown table
+        for exact value matching in queries.
+        
+        Returns a list of dicts representing each row with column headers as keys.
+        """
+        lines = [l.strip() for l in markdown_table.strip().split("\n") if l.strip()]
+        
+        if len(lines) < 2:
+            return []
+        
+        # Parse header
+        headers = [col.strip() for col in lines[0].split("|") if col.strip()]
+        
+        # Parse data rows (skip separator line)
+        rows = []
+        for line in lines[1:]:
+            if all(c in "-| " for c in line):
+                continue  # Skip separator
+            cells = [c.strip() for c in line.split("|") if c.strip()]
+            if cells and len(cells) == len(headers):
+                rows.append(dict(zip(headers, cells)))
+        
+        return rows
+
