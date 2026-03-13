@@ -40,7 +40,7 @@ class TaskDecomposer:
                 "Your task is to take a complex user query and decompose it into 2-3 atomic, standalone sub-queries.\n"
                 "If the query is already simple and atomic, just return the original query.\n"
                 "CRITICAL: Do NOT answer the question or inject external parametric knowledge. You must ONLY break down the literal concepts provided in the user's prompt into sub-queries.\n"
-                "CRITICAL EXCEPTION: If the user's query is critically ambiguous (e.g., missing a subject, too broad, or nonsensical), you MUST NOT decompose it. Instead, you MUST output EXACTLY this JSON format and nothing else: `{\"type\": \"clarification\", \"content\": \"<your clarifying question here>\"}`\n\n"
+                "CRITICAL EXCEPTION: If the user's query is critically ambiguous (e.g., missing a subject, too broad, or nonsensical), you MUST NOT decompose it. Instead, you MUST output EXACTLY this JSON format and nothing else: `{{\"type\": \"clarification\", \"content\": \"<your clarifying question here>\"}}`\n\n"
                 "Example 1:\n"
                 "User: Compare blackout periods for SVPs and regular employees\n"
                 "Output:\n"

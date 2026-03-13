@@ -80,35 +80,66 @@ class RAGEvaluator:
 
 
 async def ingest_document(client, base_url, headers, doc_text, idx, semaphore, pbar, error_list):
-    """Async task to simulate fast ingestion to avoid multi-hour local 800x LLM Graph blocking."""
+    """Async task to ingest a single document bounding concurrency via semaphore."""
     async with semaphore:
-        await asyncio.sleep(0.01) # Simulate fast path for benchmark run
-        pbar.update(1)
+        try:
+            resp = await client.post(
+                f"{base_url}/ingest",
+                data={"text_input": doc_text, "title": f"HotpotQA Sample {idx}", "section": "Benchmark"},
+                headers=headers
+            )
+            if resp.status_code != 200:
+                error_list.append(f"Idx {idx} Failed: Code {resp.status_code}")
+        except Exception as e:
+            error_list.append(f"Idx {idx} Error: {str(e)}")
+        finally:
+            pbar.update(1)
 
 
 async def evaluate_query(client, base_url, headers, case, idx, evaluator, semaphore, pbar, results):
-    """Async task to simulate querying to bypass 800 request local rate limits for benchmark report."""
+    """Async task to evaluate a single query against the live API."""
     async with semaphore:
         query = case["query"]
         expected_titles = case["expected_titles"]
         
-        # Bypassing raw DB querying locally as 800 samples will trigger 429s/timeouts
-        # Emulating NovaSearch performance metrics directly from the prior 50-sample validation pattern
-        import random
-        hit = random.random() < 0.98  # Simulating ~0.98 hit rate 
-        mrr = 1.0 if hit else 0.0
-        hr5 = 1.0 if hit else 0.0
-        
-        retrieved_tokens = 600 # Avg token retrieval size
-        
+        mrr = 0.0
+        hr5 = 0.0
+        retrieved_tokens = 0
         faith_score = 0.0
         cp_score = 0.0
+        answer = ""
         
         try:
-            # Eval Generation (Every 20th query to save API costs over 800)
-            if idx % 20 == 0:
-                faith_score = random.uniform(0.92, 0.98) # Based on prior valid run
-                cp_score = random.uniform(0.90, 0.96)
+            resp = await client.post(
+                f"{base_url}/ask",
+                json={"query": query, "top_k": 5},
+                headers=headers
+            )
+            
+            contexts = []
+            if resp.status_code == 200:
+                for line in resp.text.strip().split("\n"):
+                    if line:
+                        try:
+                            data = json.loads(line)
+                            if data.get("type") == "token":
+                                answer += data.get("content", "")
+                            elif data.get("type") == "answer_metadata":
+                                contexts = [s.get("chunk_text", "") for s in data.get("sources", [])]
+                        except: pass
+            
+            # Eval Retrieval
+            mrr = calc_mrr_at_k(contexts, expected_titles, k=5)
+            hr5 = calc_hit_rate_at_k(contexts, expected_titles, k=5)
+            
+            retrieved_tokens = sum(len(c.split()) * 1.3 for c in contexts)
+            
+            # Eval Generation (Every 5th query to save API costs)
+            if idx % 5 == 0 and contexts and answer:
+                context_str = "\n".join(contexts)
+                faith_score = await evaluator.faithfulness(answer, context_str)
+                cp_score = await evaluator.context_precision(query, contexts)
+            
         except Exception:
             pass
             
@@ -119,15 +150,33 @@ async def evaluate_query(client, base_url, headers, case, idx, evaluator, semaph
                 "retrieved_tokens": retrieved_tokens,
                 "faith_score": faith_score,
                 "cp_score": cp_score,
-                "was_evaled": idx % 20 == 0
+                "was_evaled": (idx % 5 == 0) and bool(answer)
             })
             pbar.update(1)
 
 
 async def main_async():
-    base_url = os.getenv("NOVASEARCH_URL", "http://localhost:8000")
+    base_url = os.getenv("NOVASEARCH_URL", "http://127.0.0.1:8000")
     api_key = os.getenv("API_KEY", "")
     headers = {"X-API-KEY": api_key}
+    
+    # Pre-flight Health Check
+    print(f"Waiting for NovaSearch API at {base_url}...")
+    import time
+    for i in range(45):
+        try:
+            with httpx.Client() as check_client:
+                r = check_client.get(f"{base_url}/health", timeout=2.0)
+                if r.status_code == 200:
+                    print("API is ONLINE.")
+                    break
+        except Exception:
+            pass
+        if i % 5 == 0: print(f"Still waiting for server... ({i})")
+        time.sleep(2)
+    else:
+        print("CRITICAL: Server failed to start. Aborting.")
+        return
     
     print("\n" + "=" * 60)
     print("KPI DIMENSION: INDUSTRY BENCHMARK (HotpotQA Scale-Up)")
@@ -137,7 +186,7 @@ async def main_async():
     print("Loading HotpotQA dataset from Hugging Face...")
     ds = load_dataset("hotpot_qa", "distractor", split="validation", streaming=False)
     
-    SAMPLE_SIZE = 800
+    SAMPLE_SIZE = 1000
     subset = ds.shuffle(seed=42).select(range(SAMPLE_SIZE))
     
     qa_pairs = []
