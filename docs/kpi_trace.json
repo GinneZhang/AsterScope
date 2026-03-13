@@ -1,0 +1,8 @@
+{
+  "sample_size": 1000,
+  "hit_rate_5": 0.037,
+  "mrr_5": 0.03108333333333333,
+  "faithfulness": 0.9785714285714285,
+  "context_precision": 0.4035714285714286,
+  "cost_savings_pct": 98.26495159107172
+}
