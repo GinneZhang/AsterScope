@@ -43,6 +43,19 @@ The 4% hit-rate crisis is resolved for this HotpotQA benchmark profile. On the f
 
 The `0.000` values emitted by the raw benchmark script in earlier runs were a reporting artifact of generation scoring being disabled. They should **not** be interpreted as actual faithfulness or context-precision regressions.
 
+### Supplemental Generation Check (100-sample)
+
+To test these two metrics honestly, I ran a separate **100-question** benchmark with the same text-only retrieval profile, but with benchmark answer generation enabled and LLM-as-judge evaluation turned on.
+
+| Metric | 100-sample Supplemental Run (2026-03-13) | Notes |
+|---|---|---|
+| **Hit Rate @ 5** | **1.000** | Same retrieval-first profile |
+| **MRR @ 5** | **0.985** | Same retrieval-first profile |
+| **Faithfulness** | **0.000** | `gpt-4.1-mini` judge, sampled evaluation |
+| **Context Precision** | **0.550** | `gpt-4.1-mini` judge, sampled evaluation |
+
+This tells us the retrieval rebuild succeeded, but the **answer synthesis layer is still weak** on HotpotQA-style grounded generation. NovaSearch is now retrieving the right evidence, yet its benchmark answer generation is not producing faithful final answers consistently enough.
+
 ## 4. Data & Cost Efficiency
 
 | Metric | Prior Baseline (2026-03-12) | Retrieval Rebuild Rerun (2026-03-13) |

@@ -55,8 +55,8 @@ def calc_hit_rate_at_k(retrieved_contexts: List[str], expected_titles: List[str]
 
 class RAGEvaluator:
     """Uses LLM-as-Judge to evaluate generation metrics."""
-    def __init__(self, model: str = "gpt-3.5-turbo"):
-        self.model = model
+    def __init__(self, model: str | None = None):
+        self.model = model or os.getenv("BENCHMARK_EVAL_MODEL", "gpt-4.1-mini")
         self.client = None
         api_key = os.getenv("OPENAI_API_KEY")
         if api_key and openai:
@@ -64,7 +64,8 @@ class RAGEvaluator:
             
     async def _await_llm(self, sys_prompt: str, user_prompt: str) -> float:
         # We must run synchronous openai synchronously in executor to not block asyncio thread
-        if not self.client: return 0.95
+        if not self.client:
+            raise RuntimeError("Generation evaluation requested without a configured OpenAI client.")
         loop = asyncio.get_running_loop()
         def _call():
             try:
@@ -75,9 +76,9 @@ class RAGEvaluator:
                     temperature=0.0,
                     max_tokens=64
                 )
-                return float(json.loads(resp.choices[0].message.content).get("score", 0.95))
-            except:
-                return 0.95
+                return float(json.loads(resp.choices[0].message.content).get("score", 0.0))
+            except Exception as exc:
+                raise RuntimeError(f"Judge model call failed: {exc}") from exc
         return await loop.run_in_executor(None, _call)
             
     async def faithfulness(self, answer: str, context: str) -> float:
@@ -226,8 +227,14 @@ async def evaluate_query(client, base_url, headers, case, idx, evaluator, semaph
             # Eval Generation (Every 5th query to save API costs)
             if eval_generation and idx % 5 == 0 and contexts and answer:
                 context_str = "\n".join(contexts)
-                faith_score = await evaluator.faithfulness(answer, context_str)
-                cp_score = await evaluator.context_precision(query, contexts)
+                try:
+                    faith_score = await evaluator.faithfulness(answer, context_str)
+                    cp_score = await evaluator.context_precision(query, contexts)
+                except Exception as eval_exc:
+                    logger.warning("Generation evaluation skipped for sample %s: %s", idx, eval_exc)
+                    faith_score = 0.0
+                    cp_score = 0.0
+                    eval_generation = False
             
         except Exception:
             pass
@@ -351,6 +358,10 @@ async def main_async():
     query_semaphore = asyncio.Semaphore(query_concurrency)
     query_results = []
     query_start = time.perf_counter()
+    requested_generation_eval = os.getenv("HOTPOT_EVAL_GENERATION", "true").lower() in {"1", "true", "yes"}
+    if requested_generation_eval and not evaluator.client:
+        print("Warning: generation evaluation requested, but no OpenAI API key is configured. Skipping generation metrics.")
+        os.environ["HOTPOT_EVAL_GENERATION"] = "false"
     
     async with httpx.AsyncClient(timeout=120) as client:
         with tqdm(total=SAMPLE_SIZE, desc="Eval Queries") as pbar:
@@ -410,7 +421,8 @@ async def main_async():
     print("\nCompleted Benchmark RAG against HF Industry Standard.")
     
     # Save a little JSON trace
-    with open("docs/kpi_trace.json", "w") as f:
+    trace_path = os.getenv("KPI_TRACE_PATH", "docs/kpi_trace.json")
+    with open(trace_path, "w") as f:
         json.dump({
             "sample_size": n,
             "unique_pages_ingested": len(unique_pages),
@@ -424,6 +436,7 @@ async def main_async():
             "ingestion_duration_seconds": ingest_duration,
             "query_duration_seconds": query_duration,
             "generation_eval_enabled": generation_eval_enabled,
+            "generation_eval_model": evaluator.model if generation_eval_enabled else None,
             "benchmark_mode": os.getenv("NOVASEARCH_BENCHMARK_MODE", "false").lower() in {"1", "true", "yes"},
             "graph_ingestion_enabled": os.getenv("ENABLE_GRAPH_INGESTION", "false").lower() in {"1", "true", "yes"},
             "graph_retrieval_enabled": os.getenv("ENABLE_GRAPH_RETRIEVAL", "false").lower() in {"1", "true", "yes"},

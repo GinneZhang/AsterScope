@@ -256,6 +256,9 @@ If the user greets you or asks about your capabilities, you may respond naturall
         """
         logger.info("Agent processing query: '%s'", query)
         benchmark_mode = os.getenv("NOVASEARCH_BENCHMARK_MODE", "false").lower() in {"1", "true", "yes"}
+        benchmark_generate_answer = os.getenv(
+            "NOVASEARCH_BENCHMARK_GENERATE_ANSWER", "false"
+        ).lower() in {"1", "true", "yes"}
         
         # 1. Ensure Session ID & Fetch History
         sid = session_id or str(uuid.uuid4())
@@ -328,7 +331,7 @@ If the user greets you or asks about your capabilities, you may respond naturall
             yield {"type": "thought", "content": f"Successfully retrieved {len(graph_expanded_hits)} grounded chunks from Enterprise Knowledge Graph."}
             context_str = self._format_context(graph_expanded_hits)
 
-            if benchmark_mode:
+            if benchmark_mode and not benchmark_generate_answer:
                 yield {"type": "token", "content": "Benchmark retrieval completed."}
                 yield {
                     "type": "answer_metadata",

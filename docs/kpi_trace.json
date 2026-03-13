@@ -11,6 +11,7 @@
   "ingestion_duration_seconds": 1229.0,
   "query_duration_seconds": 4213.0,
   "generation_eval_enabled": false,
+  "generation_eval_model": null,
   "benchmark_mode": true,
   "graph_ingestion_enabled": false,
   "graph_retrieval_enabled": false,

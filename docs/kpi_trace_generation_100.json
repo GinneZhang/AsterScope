@@ -1,0 +1,20 @@
+{
+  "sample_size": 100,
+  "unique_pages_ingested": 991,
+  "hit_rate_5": 1.0,
+  "mrr_5": 0.985,
+  "faithfulness": 0.0,
+  "context_precision": 0.55,
+  "cost_savings_pct": 73.77953113986221,
+  "raw_token_total": 114345.40000000001,
+  "retrieved_token_total": 29981.9,
+  "ingestion_duration_seconds": 99.78302154100675,
+  "query_duration_seconds": 47.63774183399801,
+  "generation_eval_enabled": true,
+  "generation_eval_model": "gpt-4.1-mini",
+  "benchmark_mode": true,
+  "graph_ingestion_enabled": false,
+  "graph_retrieval_enabled": false,
+  "vision_retriever_enabled": false,
+  "text_vision_indexing_enabled": false
+}
