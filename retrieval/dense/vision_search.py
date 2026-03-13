@@ -4,6 +4,7 @@ Multimodal Vision Search Retriever (CLIP Integration).
 
 import os
 import logging
+import threading
 from typing import List, Dict, Any, Union
 
 try:
@@ -33,6 +34,7 @@ class PGVectorVisionRetriever:
         except Exception as e:
             logger.error(f"Failed to load CLIP model: {e}")
             self.model = None
+        self._encode_lock = threading.Lock()
 
         if pg_conn:
             self.pg_conn = pg_conn
@@ -91,7 +93,8 @@ class PGVectorVisionRetriever:
         if not self.model:
             return [0.0] * 512
         try:
-            return self.model.encode(data).tolist()
+            with self._encode_lock:
+                return self.model.encode(data).tolist()
         except Exception as e:
             logger.error(f"CLIP embedding failed: {e}")
             return [0.0] * 512

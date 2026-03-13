@@ -3,6 +3,7 @@ Dense Retrieval Module for NovaSearch.
 """
 import logging
 import re
+import threading
 from typing import List, Dict, Any
 from abc import ABC, abstractmethod
 from abc import ABC, abstractmethod
@@ -48,6 +49,7 @@ class PGVectorDenseRetriever(BaseDenseRetriever):
         self.pg_conn = pg_conn
         logger.info("Loading embedding model for Dense Search...")
         self.embedding_model = SentenceTransformer(embedding_model_name)
+        self._encode_lock = threading.Lock()
         
     def search(self, query: str, top_k: int = 10) -> List[Dict[str, Any]]:
         """Performs vector similarity search on pgvector."""
@@ -56,7 +58,8 @@ class PGVectorDenseRetriever(BaseDenseRetriever):
             return []
             
         # 1. Embed query
-        query_vector = self.embedding_model.encode(query).tolist()
+        with self._encode_lock:
+            query_vector = self.embedding_model.encode(query).tolist()
         
         sql = """
             SELECT 

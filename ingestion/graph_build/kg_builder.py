@@ -8,6 +8,7 @@ It connects via the official neo4j driver and constructs the following schema:
 
 import os
 import logging
+import threading
 from typing import List, Dict, Any
 
 try:
@@ -58,6 +59,7 @@ class KGBuilder:
         except Exception as e:
             logger.warning(f"Failed to load spaCy model for NER (Neo4j). Entities will be skipped: {e}")
             self.nlp = None
+        self._graph_lock = threading.Lock()
 
     def close(self):
         """Closes the driver connection."""
@@ -80,50 +82,51 @@ class KGBuilder:
             logger.error("Neo4j driver not initialized. Cannot build graph.")
             return
 
-        with self.driver.session() as session:
-            # First, process text with spaCy to extract entities
-            processed_chunks = []
-            for chunk in chunks:
-                chunk_copy = dict(chunk)
-                entities = []
-                if self.nlp and chunk_copy.get("chunk_text"):
-                    doc = self.nlp(chunk_copy["chunk_text"])
-                    # Valid Neo4j property types must be primitives (no nested quotes)
-                    entities = [{"name": ent.text.strip(), "type": ent.label_} for ent in doc.ents if ent.label_ in {"PERSON", "ORG", "GPE", "LOC", "PRODUCT", "EVENT"}]
-                    
-                    # Deduplicate and Normalize entities for the same chunk
-                    seen = set()
-                    unique_entities = []
-                    
-                    # Basic Synonym Map for Entity Resolution
-                    synonym_map = {
-                        "aws": "Amazon Web Services",
-                        "amazon web services": "Amazon Web Services",
-                        "gcp": "Google Cloud Platform",
-                        "google cloud": "Google Cloud Platform"
-                    }
-                    
-                    for e in entities:
-                        # Normalize name
-                        raw_name = e["name"].strip()
-                        normalized_name = raw_name.lower()
-                        
-                        # Merge Synonyms
-                        if normalized_name in synonym_map:
-                            e["name"] = synonym_map[normalized_name]
-                            normalized_name = e["name"].lower()
-                        
-                        if normalized_name not in seen and len(normalized_name) > 1:
-                            seen.add(normalized_name)
-                            unique_entities.append(e)
-                    entities = unique_entities
-                    
-                chunk_copy["entities"] = entities
-                processed_chunks.append(chunk_copy)
-                
-            # We process chunks in a single transaction for efficiency and atomicity.
-            session.execute_write(self._merge_chunks_tx, processed_chunks)
-            logger.info(f"Successfully ingested {len(processed_chunks)} chunks with entities into Knowledge Graph.")
+        with self._graph_lock:
+            with self.driver.session() as session:
+                # First, process text with spaCy to extract entities
+                processed_chunks = []
+                for chunk in chunks:
+                    chunk_copy = dict(chunk)
+                    entities = []
+                    if self.nlp and chunk_copy.get("chunk_text"):
+                        doc = self.nlp(chunk_copy["chunk_text"])
+                        # Valid Neo4j property types must be primitives (no nested quotes)
+                        entities = [{"name": ent.text.strip(), "type": ent.label_} for ent in doc.ents if ent.label_ in {"PERSON", "ORG", "GPE", "LOC", "PRODUCT", "EVENT"}]
+
+                        # Deduplicate and Normalize entities for the same chunk
+                        seen = set()
+                        unique_entities = []
+
+                        # Basic Synonym Map for Entity Resolution
+                        synonym_map = {
+                            "aws": "Amazon Web Services",
+                            "amazon web services": "Amazon Web Services",
+                            "gcp": "Google Cloud Platform",
+                            "google cloud": "Google Cloud Platform"
+                        }
+
+                        for e in entities:
+                            # Normalize name
+                            raw_name = e["name"].strip()
+                            normalized_name = raw_name.lower()
+
+                            # Merge Synonyms
+                            if normalized_name in synonym_map:
+                                e["name"] = synonym_map[normalized_name]
+                                normalized_name = e["name"].lower()
+
+                            if normalized_name not in seen and len(normalized_name) > 1:
+                                seen.add(normalized_name)
+                                unique_entities.append(e)
+                        entities = unique_entities
+
+                    chunk_copy["entities"] = entities
+                    processed_chunks.append(chunk_copy)
+
+                # We process chunks in a single transaction for efficiency and atomicity.
+                session.execute_write(self._merge_chunks_tx, processed_chunks)
+                logger.info(f"Successfully ingested {len(processed_chunks)} chunks with entities into Knowledge Graph.")
 
     @staticmethod
     def _merge_chunks_tx(tx, chunks: List[Dict[str, Any]]):

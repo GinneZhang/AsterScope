@@ -75,6 +75,7 @@ class HybridSearchCoordinator:
         )
         try:
             self.pg_conn = psycopg2.connect(self.pg_dsn)
+            self.pg_conn.autocommit = True
             logger.info("Connected to PostgreSQL for Dense/Sparse search.")
         except Exception as e:
             logger.error("Failed to connect to PostgreSQL: %s", str(e))
@@ -113,29 +114,41 @@ class HybridSearchCoordinator:
             self.cross_encoder = CrossEncoderReranker()
 
         # 3. Setup Neo4j (Graph Retrieval)
+        benchmark_mode = os.getenv("NOVASEARCH_BENCHMARK_MODE", "false").lower() in {"1", "true", "yes"}
+        self.enable_graph_retrieval = os.getenv(
+            "ENABLE_GRAPH_RETRIEVAL",
+            "false" if benchmark_mode else "true"
+        ).lower() in {"1", "true", "yes"}
         self.neo4j_uri = neo4j_uri or os.getenv("NEO4J_URI", "bolt://localhost:7687")
         self.neo4j_user = neo4j_user or os.getenv("NEO4J_USER", "neo4j")
         self.neo4j_password = neo4j_password or os.getenv("NEO4J_PASSWORD", "neo4j_secure_password")
         
-        try:
-            self.neo4j_driver = GraphDatabase.driver(
-                self.neo4j_uri, auth=(self.neo4j_user, self.neo4j_password)
-            )
-            self.neo4j_driver.verify_connectivity()
-            logger.info("Connected to Neo4j Knowledge Graph.")
-        except Exception as e:
-            logger.error("Failed to connect to Neo4j: %s", str(e))
+        if self.enable_graph_retrieval:
+            try:
+                self.neo4j_driver = GraphDatabase.driver(
+                    self.neo4j_uri, auth=(self.neo4j_user, self.neo4j_password)
+                )
+                self.neo4j_driver.verify_connectivity()
+                logger.info("Connected to Neo4j Knowledge Graph.")
+            except Exception as e:
+                logger.error("Failed to connect to Neo4j: %s", str(e))
+                self.neo4j_driver = None
+        else:
+            logger.info("Graph retrieval disabled for current runtime mode.")
             self.neo4j_driver = None
             
         # 4. Setup NER for Graph Expansion
-        try:
-            self.nlp = spacy.load("en_core_web_sm")
-        except OSError:
-            logger.warning("Spacy model not found. Continuing without spaCy NER.")
+        if self.enable_graph_retrieval:
+            try:
+                self.nlp = spacy.load("en_core_web_sm")
+            except OSError:
+                logger.warning("Spacy model not found. Continuing without spaCy NER.")
+                self.nlp = None
+        else:
             self.nlp = None
             
         # 5. Setup Dynamic Cypher Generator
-        self.cypher_gen = CypherGenerator()
+        self.cypher_gen = CypherGenerator() if self.enable_graph_retrieval else None
 
     def __del__(self):
         """Cleanup connections on destruction."""
@@ -276,7 +289,7 @@ class HybridSearchCoordinator:
         document and adjacent chunks (1-hop), and injects this graph context.
         Also attempts to resolve Entities (NER) if mentioned in the query.
         """
-        if not hasattr(self, 'neo4j_driver') or not self.neo4j_driver or not base_hits:
+        if not self.enable_graph_retrieval or not hasattr(self, 'neo4j_driver') or not self.neo4j_driver or not base_hits:
             return base_hits
             
         enriched_hits = []
@@ -339,7 +352,7 @@ class HybridSearchCoordinator:
         relationship reasoning. Uses self-healing: if Cypher fails, the error
         is fed back to the LLM for repair.
         """
-        if not self.neo4j_driver:
+        if not self.enable_graph_retrieval or not self.neo4j_driver or not self.cypher_gen:
             return []
             
         # Enhance prompt with query graph if available

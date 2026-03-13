@@ -76,7 +76,8 @@ try:
         
     kg_builder = KGBuilder()
     multimodal_parser = MultimodalParser()
-    vision_retriever = PGVectorVisionRetriever()
+    enable_vision_retriever = os.getenv("ENABLE_VISION_RETRIEVER", "true").lower() in {"1", "true", "yes"}
+    vision_retriever = PGVectorVisionRetriever() if enable_vision_retriever else None
 except Exception as e:
     logger.error("Failed to initialize tools: %s", str(e))
     copilot_agent = None
@@ -221,7 +222,7 @@ def _insert_chunks_to_postgres(doc_id: str, title: str, section: str, chunks: li
                 text = chunk["chunk_text"]
                 
                 # Fetch embedding from semantic chunker's loaded model
-                emb = chunker.embedding_model.encode(text).tolist()
+                emb = chunker.encode_text(text).tolist()
                 emb_str = "[" + ",".join([str(x) for x in emb]) + "]"
                 
                 cur.execute("""
@@ -299,7 +300,10 @@ def ingest_document(
                 
         # 1. Chunk Document (Heavy CPU)
         logger.info("Chunking document: %s", title)
-        chunks = chunker.chunk_document(document_text, metadata)
+        try:
+            chunks = chunker.chunk_document(document_text, metadata)
+        except Exception as chunk_err:
+            raise RuntimeError(f"Chunking stage failed: {chunk_err}") from chunk_err
         
         # Ensure sequence_index is present for graph and db
         for idx, c in enumerate(chunks):
@@ -314,10 +318,16 @@ def ingest_document(
                 from retrieval.dense.faiss_search import FAISSDenseRetriever
                 emb_model_name = chunker.embedding_model_name if hasattr(chunker, "embedding_model_name") else "all-MiniLM-L6-v2"
                 faiss_retriever = FAISSDenseRetriever(emb_model_name)
-                faiss_retriever.add_documents(doc_id, chunks)
+                try:
+                    faiss_retriever.add_documents(doc_id, chunks)
+                except Exception as faiss_err:
+                    raise RuntimeError(f"FAISS persistence failed: {faiss_err}") from faiss_err
             else:
                 logger.info("Persisting %d chunks to PostgreSQL...", len(chunks))
-                _insert_chunks_to_postgres(doc_id, title or "Untitled Document", section or "General", chunks)
+                try:
+                    _insert_chunks_to_postgres(doc_id, title or "Untitled Document", section or "General", chunks)
+                except Exception as pg_err:
+                    raise RuntimeError(f"PostgreSQL persistence failed: {pg_err}") from pg_err
 
             # Persist to Sparse Backend
             sparse_backend = os.getenv("SPARSE_BACKEND", "postgres").lower()
@@ -325,13 +335,26 @@ def ingest_document(
                 logger.info("Persisting %d chunks to Elasticsearch...", len(chunks))
                 from retrieval.sparse.elastic_search import ElasticSparseRetriever
                 elastic_retriever = ElasticSparseRetriever()
-                elastic_retriever.add_documents(doc_id, chunks)
+                try:
+                    elastic_retriever.add_documents(doc_id, chunks)
+                except Exception as sparse_err:
+                    raise RuntimeError(f"Elasticsearch persistence failed: {sparse_err}") from sparse_err
 
             # 3. Persist to Neo4j (Knowledge Graph Construction)
-            logger.info("Building Knowledge Graph for document...")
-            kg_builder.build_graph(chunks)
+            benchmark_mode = os.getenv("NOVASEARCH_BENCHMARK_MODE", "false").lower() in {"1", "true", "yes"}
+            enable_graph_ingestion = os.getenv(
+                "ENABLE_GRAPH_INGESTION",
+                "false" if benchmark_mode else "true"
+            ).lower() in {"1", "true", "yes"}
+            if enable_graph_ingestion:
+                logger.info("Building Knowledge Graph for document...")
+                try:
+                    kg_builder.build_graph(chunks)
+                except Exception as graph_err:
+                    raise RuntimeError(f"Knowledge graph ingestion failed: {graph_err}") from graph_err
             
             # 4. Multimodal Vision Embeddings (CLIP)
+            enable_text_vision_indexing = os.getenv("ENABLE_TEXT_VISION_INDEXING", "true").lower() in {"1", "true", "yes"}
             if vision_retriever:
                 logger.info("Generating CLIP multimodal embeddings...")
                 # If an image was uploaded alongside the ingest, embed the raw image once to represent the doc
@@ -344,11 +367,15 @@ def ingest_document(
                         logger.error(f"Failed to embed raw image: {ve}")
                 
                 # Also embed the isolated text chunks into the vision space
-                for idx, c in enumerate(chunks):
-                    text_context = c.get("chunk_text", "")
-                    if text_context:
-                        v_emb = vision_retriever.embed(text_context)
-                        vision_retriever.insert_vision_chunk(doc_id, idx, text_context, v_emb)
+                if enable_text_vision_indexing:
+                    for idx, c in enumerate(chunks):
+                        text_context = c.get("chunk_text", "")
+                        if text_context:
+                            try:
+                                v_emb = vision_retriever.embed(text_context)
+                                vision_retriever.insert_vision_chunk(doc_id, idx, text_context, v_emb)
+                            except Exception as vision_err:
+                                raise RuntimeError(f"Vision persistence failed: {vision_err}") from vision_err
             
         except Exception as db_err:
             # Explicit rollback or CRITICAL alert

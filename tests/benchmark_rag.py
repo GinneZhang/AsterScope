@@ -124,15 +124,20 @@ async def ingest_page_document(client, base_url, headers, title, doc_text, idx, 
 
 
 def _compose_retrieval_context(source: Dict[str, Any]) -> str:
-    title = source.get("title") or source.get("graph_context", {}).get("doc_title") or ""
+    graph_context = source.get("graph_context") or {}
+    title = source.get("title") or graph_context.get("doc_title") or ""
     chunk_text = source.get("chunk_text", "") or ""
-    graph_title = source.get("graph_context", {}).get("doc_title") or ""
+    graph_title = graph_context.get("doc_title") or ""
     parts = [part for part in [title, graph_title, chunk_text] if part]
     return "\n".join(parts)
 
 
 def reset_benchmark_stores():
     """Best-effort cleanup so repeated benchmark runs don't stack stale state."""
+    graph_enabled = (
+        os.getenv("ENABLE_GRAPH_INGESTION", "false").lower() in {"1", "true", "yes"}
+        or os.getenv("ENABLE_GRAPH_RETRIEVAL", "false").lower() in {"1", "true", "yes"}
+    )
     pg_dsn = os.getenv(
         "DATABASE_URL",
         f"dbname={os.getenv('POSTGRES_DB', 'novasearch')} "
@@ -158,7 +163,7 @@ def reset_benchmark_stores():
             if conn:
                 conn.close()
 
-    if GraphDatabase:
+    if graph_enabled and GraphDatabase:
         driver = None
         try:
             driver = GraphDatabase.driver(
@@ -191,6 +196,8 @@ async def evaluate_query(client, base_url, headers, case, idx, evaluator, semaph
         cp_score = 0.0
         answer = ""
         
+        eval_generation = os.getenv("HOTPOT_EVAL_GENERATION", "true").lower() in {"1", "true", "yes"}
+
         try:
             resp = await client.post(
                 f"{base_url}/ask",
@@ -217,7 +224,7 @@ async def evaluate_query(client, base_url, headers, case, idx, evaluator, semaph
             retrieved_tokens = sum(len(c.split()) * 1.3 for c in contexts)
             
             # Eval Generation (Every 5th query to save API costs)
-            if idx % 5 == 0 and contexts and answer:
+            if eval_generation and idx % 5 == 0 and contexts and answer:
                 context_str = "\n".join(contexts)
                 faith_score = await evaluator.faithfulness(answer, context_str)
                 cp_score = await evaluator.context_precision(query, contexts)
@@ -232,7 +239,7 @@ async def evaluate_query(client, base_url, headers, case, idx, evaluator, semaph
                 "retrieved_tokens": retrieved_tokens,
                 "faith_score": faith_score,
                 "cp_score": cp_score,
-                "was_evaled": (idx % 5 == 0) and bool(answer)
+                "was_evaled": eval_generation and (idx % 5 == 0) and bool(answer)
             })
             pbar.update(1)
 
@@ -313,6 +320,7 @@ async def main_async():
     error_list = []
     ingest_concurrency = int(os.getenv("HOTPOT_INGEST_CONCURRENCY", "3"))
     ingest_semaphore = asyncio.Semaphore(ingest_concurrency)
+    ingest_start = time.perf_counter()
     
     async with httpx.AsyncClient(timeout=120) as client:
         with tqdm(total=len(unique_pages), desc="Ingesting Pages") as pbar:
@@ -321,14 +329,20 @@ async def main_async():
                 for idx, (title, text) in enumerate(unique_pages)
             ]
             await asyncio.gather(*tasks)
+    ingest_duration = time.perf_counter() - ingest_start
             
     if error_list:
         print(f"\nCompleted ingestion with {len(error_list)} errors (e.g., {error_list[0]}).")
     else:
         print("\nCompleted ingestion successfully.")
         
-    print("\nWaiting 5 seconds for background graph indexing to settle...")
-    await asyncio.sleep(5)
+    graph_enabled = (
+        os.getenv("ENABLE_GRAPH_INGESTION", "false").lower() in {"1", "true", "yes"}
+        or os.getenv("ENABLE_GRAPH_RETRIEVAL", "false").lower() in {"1", "true", "yes"}
+    )
+    if graph_enabled:
+        print("\nWaiting 5 seconds for background graph indexing to settle...")
+        await asyncio.sleep(5)
     
     # 3. Query Phase
     print(f"\nStarting ASYNC Query Evaluation Phase ({SAMPLE_SIZE} queries)...")
@@ -336,6 +350,7 @@ async def main_async():
     query_concurrency = int(os.getenv("HOTPOT_QUERY_CONCURRENCY", "5"))
     query_semaphore = asyncio.Semaphore(query_concurrency)
     query_results = []
+    query_start = time.perf_counter()
     
     async with httpx.AsyncClient(timeout=120) as client:
         with tqdm(total=SAMPLE_SIZE, desc="Eval Queries") as pbar:
@@ -344,6 +359,7 @@ async def main_async():
                 for case in qa_pairs
             ]
             await asyncio.gather(*tasks)
+    query_duration = time.perf_counter() - query_start
             
     # Compute Metrics
     n = len(query_results)
@@ -351,16 +367,19 @@ async def main_async():
     raw_hr5 = sum(r["hr5"] for r in query_results)
     total_retrieved_tokens = sum(r["retrieved_tokens"] for r in query_results)
     
+    generation_eval_enabled = os.getenv("HOTPOT_EVAL_GENERATION", "true").lower() in {"1", "true", "yes"}
     evaled = [r for r in query_results if r["was_evaled"]]
-    eval_n = len(evaled) or 1
+    eval_n = len(evaled)
     faith_sum = sum(r["faith_score"] for r in evaled)
     cp_sum = sum(r["cp_score"] for r in evaled)
+    faithfulness_metric = (faith_sum / eval_n) if generation_eval_enabled and eval_n else None
+    context_precision_metric = (cp_sum / eval_n) if generation_eval_enabled and eval_n else None
     
     print("\n" + "=" * 60)
     print("KPI DIMENSION 1: RETRIEVAL QUALITY (Industry Dataset)")
     print("=" * 60)
     print(f"Dataset: HotpotQA (Validation Split)")
-    print(f"Sample Size: {n} Questions / {n} Documents")
+    print(f"Sample Size: {n} Questions / {len(unique_pages)} Ingested Reference Pages")
     print(f"| Metric | Hybrid + Cross-Encoder |")
     print(f"|---|---|")
     print(f"| Hit Rate @ 5 | {raw_hr5/n:.2f} |")
@@ -369,9 +388,13 @@ async def main_async():
     print("\n" + "=" * 60)
     print("KPI DIMENSION 2: GENERATION & HALLUCINATION")
     print("=" * 60)
-    print(f"Faithfulness Score: {faith_sum/eval_n:.3f} (Target: > 0.9)")
-    print(f"Context Precision:  {cp_sum/eval_n:.3f} (Target: > 0.9)")
-    print(f"* (LLM evaluation sampled every 5th successful query to bound token cost)")
+    if generation_eval_enabled:
+        print(f"Faithfulness Score: {faithfulness_metric:.3f} (Target: > 0.9)")
+        print(f"Context Precision:  {context_precision_metric:.3f} (Target: > 0.9)")
+        print(f"* (LLM evaluation sampled every 5th successful query to bound token cost)")
+    else:
+        print("Faithfulness Score: not evaluated in this run (generation evaluation disabled).")
+        print("Context Precision:  not evaluated in this run (generation evaluation disabled).")
     
     print("\n" + "=" * 60)
     print("KPI DIMENSION 4: DATA & COST EFFICIENCY")
@@ -390,11 +413,22 @@ async def main_async():
     with open("docs/kpi_trace.json", "w") as f:
         json.dump({
             "sample_size": n,
+            "unique_pages_ingested": len(unique_pages),
             "hit_rate_5": raw_hr5/n,
             "mrr_5": raw_mrr/n,
-            "faithfulness": faith_sum/eval_n,
-            "context_precision": cp_sum/eval_n,
-            "cost_savings_pct": savings
+            "faithfulness": faithfulness_metric,
+            "context_precision": context_precision_metric,
+            "cost_savings_pct": savings,
+            "raw_token_total": total_raw_tokens,
+            "retrieved_token_total": total_retrieved_tokens,
+            "ingestion_duration_seconds": ingest_duration,
+            "query_duration_seconds": query_duration,
+            "generation_eval_enabled": generation_eval_enabled,
+            "benchmark_mode": os.getenv("NOVASEARCH_BENCHMARK_MODE", "false").lower() in {"1", "true", "yes"},
+            "graph_ingestion_enabled": os.getenv("ENABLE_GRAPH_INGESTION", "false").lower() in {"1", "true", "yes"},
+            "graph_retrieval_enabled": os.getenv("ENABLE_GRAPH_RETRIEVAL", "false").lower() in {"1", "true", "yes"},
+            "vision_retriever_enabled": os.getenv("ENABLE_VISION_RETRIEVER", "true").lower() in {"1", "true", "yes"},
+            "text_vision_indexing_enabled": os.getenv("ENABLE_TEXT_VISION_INDEXING", "true").lower() in {"1", "true", "yes"}
         }, f, indent=2)
 
 if __name__ == "__main__":
