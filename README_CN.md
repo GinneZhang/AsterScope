@@ -282,7 +282,17 @@ python tests/load_test.py
 
 - `docker-registry-creds`：镜像仓库用户名/密码
 - `kubeconfig-asterscope`：目标 Kubernetes 集群的 kubeconfig 文件凭据
-- `HELM_RELEASE_NAME=asterscope`
+
+推荐流水线参数：
+
+- `RUN_INTEGRATION_TESTS=true`
+- `DEPLOY_TO_K8S=true`
+- `DEPLOY_ENVIRONMENT=staging` 或 `prod`
+- `K8S_NAMESPACE=` 时默认使用环境命名空间（`asterscope-staging` / `asterscope-prod`）
+- `API_IMAGE_REPOSITORY=asterscope/api`
+- `RETRIEVAL_IMAGE_REPOSITORY=asterscope/retrieval`
+- `DOCKER_REGISTRY=ghcr.io/<your-org>` 或你的私有镜像仓库
+- `HELM_RELEASE_NAME=` 时默认使用环境 release 名称（`asterscope-staging` / `asterscope-prod`）
 
 当前说明：
 
@@ -290,6 +300,12 @@ python tests/load_test.py
   - [api/main.py](/Users/ginnezhang/Documents/Playground/NovaSearch/api/main.py)
   - [retrieval/main.py](/Users/ginnezhang/Documents/Playground/NovaSearch/retrieval/main.py)
 - Jenkins 现在可以自动化 **API + retrieval** 的镜像构建与基于 Helm 的部署
+- 生产环境发布现在带有 Jenkins 手动确认步骤，staging 可以自动部署
+
+环境级 Helm 配置：
+
+- [deploy/helm/asterscope/values-staging.yaml](/Users/ginnezhang/Documents/Playground/NovaSearch/deploy/helm/asterscope/values-staging.yaml)
+- [deploy/helm/asterscope/values-prod.yaml](/Users/ginnezhang/Documents/Playground/NovaSearch/deploy/helm/asterscope/values-prod.yaml)
 
 Benchmark runner 现在使用更快的自写指标作为正式评测结果：
 

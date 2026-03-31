@@ -1,0 +1,40 @@
+# AsterScope Helm Values — Production Overrides
+
+replicaCount:
+  api: 3
+  retrieval: 2
+
+autoscaling:
+  api:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 12
+  retrieval:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+
+resources:
+  api:
+    requests:
+      cpu: 750m
+      memory: 2Gi
+    limits:
+      cpu: 3000m
+      memory: 6Gi
+  retrieval:
+    requests:
+      cpu: 1500m
+      memory: 3Gi
+    limits:
+      cpu: 5000m
+      memory: 10Gi
+
+externalSecrets:
+  secretStoreRef:
+    name: aws-secrets-manager-prod
+
+env:
+  API_ENV: production
+  LOG_LEVEL: WARNING
+

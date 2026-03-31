@@ -11,14 +11,15 @@ pipeline {
   parameters {
     booleanParam(name: 'RUN_INTEGRATION_TESTS', defaultValue: true, description: 'Start docker-compose infra and run integration tests.')
     booleanParam(name: 'DEPLOY_TO_K8S', defaultValue: true, description: 'Deploy the API and retrieval images to Kubernetes after a successful main-branch build.')
-    string(name: 'K8S_NAMESPACE', defaultValue: 'asterscope', description: 'Kubernetes namespace for deployment.')
+    choice(name: 'DEPLOY_ENVIRONMENT', choices: ['staging', 'prod'], description: 'Target environment for Kubernetes deployment.')
+    string(name: 'K8S_NAMESPACE', defaultValue: '', description: 'Optional Kubernetes namespace override. Defaults to asterscope-staging or asterscope-prod.')
     string(name: 'API_IMAGE_REPOSITORY', defaultValue: 'asterscope/api', description: 'Container image repository for the API service.')
     string(name: 'RETRIEVAL_IMAGE_REPOSITORY', defaultValue: 'asterscope/retrieval', description: 'Container image repository for the retrieval service.')
     string(name: 'IMAGE_TAG', defaultValue: '', description: 'Optional image tag override. Defaults to Jenkins BUILD_NUMBER.')
     string(name: 'DOCKER_REGISTRY', defaultValue: '', description: 'Optional registry prefix, e.g. ghcr.io/your-org')
     string(name: 'DOCKER_REGISTRY_CREDENTIALS_ID', defaultValue: 'docker-registry-creds', description: 'Jenkins username/password credential id for the container registry.')
     string(name: 'KUBECONFIG_CREDENTIALS_ID', defaultValue: 'kubeconfig-asterscope', description: 'Jenkins secret file credential id containing kubeconfig.')
-    string(name: 'HELM_RELEASE_NAME', defaultValue: 'asterscope', description: 'Helm release name for the deployed stack.')
+    string(name: 'HELM_RELEASE_NAME', defaultValue: '', description: 'Optional Helm release name override. Defaults to asterscope-staging or asterscope-prod.')
   }
 
   environment {
@@ -100,6 +101,8 @@ pipeline {
       steps {
         script {
           env.RESOLVED_IMAGE_TAG = params.IMAGE_TAG?.trim() ? params.IMAGE_TAG.trim() : env.BUILD_NUMBER
+          env.RESOLVED_NAMESPACE = params.K8S_NAMESPACE?.trim() ? params.K8S_NAMESPACE.trim() : "asterscope-${params.DEPLOY_ENVIRONMENT}"
+          env.RESOLVED_RELEASE = params.HELM_RELEASE_NAME?.trim() ? params.HELM_RELEASE_NAME.trim() : "asterscope-${params.DEPLOY_ENVIRONMENT}"
           env.API_IMAGE_NAME = params.DOCKER_REGISTRY?.trim()
             ? "${params.DOCKER_REGISTRY.trim()}/${params.API_IMAGE_REPOSITORY}:${env.RESOLVED_IMAGE_TAG}"
             : "${params.API_IMAGE_REPOSITORY}:${env.RESOLVED_IMAGE_TAG}"
@@ -142,10 +145,15 @@ pipeline {
         }
       }
       steps {
+        script {
+          if (params.DEPLOY_ENVIRONMENT == 'prod') {
+            input message: "Deploy build ${env.BUILD_NUMBER} to production?", ok: 'Deploy to prod'
+          }
+        }
         withCredentials([file(credentialsId: params.KUBECONFIG_CREDENTIALS_ID, variable: 'KUBECONFIG')]) {
           sh '''
             chmod +x scripts/jenkins/deploy_stack.sh
-            ./scripts/jenkins/deploy_stack.sh "$(cat .image_api_ref)" "$(cat .image_retrieval_ref)" "${K8S_NAMESPACE}" "${HELM_RELEASE_NAME}"
+            ./scripts/jenkins/deploy_stack.sh "$(cat .image_api_ref)" "$(cat .image_retrieval_ref)" "${RESOLVED_NAMESPACE}" "${RESOLVED_RELEASE}" "${DEPLOY_ENVIRONMENT}"
           '''
         }
       }

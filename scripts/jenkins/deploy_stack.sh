@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-API_IMAGE_REF="${1:?usage: deploy_stack.sh <api-image-ref> <retrieval-image-ref> [namespace] [release-name]}"
-RETRIEVAL_IMAGE_REF="${2:?usage: deploy_stack.sh <api-image-ref> <retrieval-image-ref> [namespace] [release-name]}"
+API_IMAGE_REF="${1:?usage: deploy_stack.sh <api-image-ref> <retrieval-image-ref> [namespace] [release-name] [environment]}"
+RETRIEVAL_IMAGE_REF="${2:?usage: deploy_stack.sh <api-image-ref> <retrieval-image-ref> [namespace] [release-name] [environment]}"
 NAMESPACE="${3:-asterscope}"
 RELEASE_NAME="${4:-asterscope}"
+DEPLOY_ENVIRONMENT="${5:-staging}"
 
 if [[ -z "${KUBECONFIG:-}" ]]; then
   echo "KUBECONFIG is required for deployment" >&2
@@ -13,6 +14,12 @@ fi
 
 if ! command -v helm >/dev/null 2>&1; then
   echo "helm is required for deploy_stack.sh" >&2
+  exit 1
+fi
+
+VALUES_FILE="deploy/helm/asterscope/values-${DEPLOY_ENVIRONMENT}.yaml"
+if [[ ! -f "${VALUES_FILE}" ]]; then
+  echo "environment values file not found: ${VALUES_FILE}" >&2
   exit 1
 fi
 
@@ -54,11 +61,13 @@ fi
 
 helm upgrade --install "${RELEASE_NAME}" deploy/helm/asterscope \
   --namespace "${NAMESPACE}" \
+  --values "${VALUES_FILE}" \
   --set-string "fullnameOverride=${RELEASE_NAME}" \
   --set-string "image.api.repository=${api_parts[0]}" \
   --set-string "image.api.tag=${api_parts[1]}" \
   --set-string "image.retrieval.repository=${retrieval_parts[0]}" \
   --set-string "image.retrieval.tag=${retrieval_parts[1]}" \
+  --set-string "env.API_ENV=${DEPLOY_ENVIRONMENT}" \
   "${secret_args[@]}"
 
 kubectl -n "${NAMESPACE}" rollout status deployment/"${RELEASE_NAME}"-api --timeout=300s

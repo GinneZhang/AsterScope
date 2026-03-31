@@ -299,11 +299,12 @@ Recommended pipeline parameters:
 
 - `RUN_INTEGRATION_TESTS=true`
 - `DEPLOY_TO_K8S=true`
-- `K8S_NAMESPACE=asterscope`
+- `DEPLOY_ENVIRONMENT=staging` or `prod`
+- `K8S_NAMESPACE=` to use the default environment namespace (`asterscope-staging` / `asterscope-prod`)
 - `API_IMAGE_REPOSITORY=asterscope/api`
 - `RETRIEVAL_IMAGE_REPOSITORY=asterscope/retrieval`
 - `DOCKER_REGISTRY=ghcr.io/<your-org>` or your private registry
-- `HELM_RELEASE_NAME=asterscope`
+- `HELM_RELEASE_NAME=` to use the default environment release (`asterscope-staging` / `asterscope-prod`)
 
 Important note:
 
@@ -311,6 +312,12 @@ Important note:
   - [api/main.py](/Users/ginnezhang/Documents/Playground/NovaSearch/api/main.py)
   - [retrieval/main.py](/Users/ginnezhang/Documents/Playground/NovaSearch/retrieval/main.py)
 - Jenkins now automates **API + retrieval image build and Helm-based Kubernetes deployment**.
+- Production deployments require a manual approval step in Jenkins; staging can roll automatically.
+
+Environment-specific Helm overlays:
+
+- [deploy/helm/asterscope/values-staging.yaml](/Users/ginnezhang/Documents/Playground/NovaSearch/deploy/helm/asterscope/values-staging.yaml)
+- [deploy/helm/asterscope/values-prod.yaml](/Users/ginnezhang/Documents/Playground/NovaSearch/deploy/helm/asterscope/values-prod.yaml)
 
 The benchmark runner now uses fast custom metrics for the official summary:
 
