@@ -312,6 +312,8 @@ Important note:
   - [api/main.py](/Users/ginnezhang/Documents/Playground/NovaSearch/api/main.py)
   - [retrieval/main.py](/Users/ginnezhang/Documents/Playground/NovaSearch/retrieval/main.py)
 - Jenkins now automates **API + retrieval image build and Helm-based Kubernetes deployment**.
+- Pull requests now run the validation path only (`Sanity`, `Unit Tests`, and optional `Integration Tests`).
+- `main` branch builds images, pushes them, and deploys through Helm.
 - Production deployments require a manual approval step in Jenkins; staging can roll automatically.
 
 Environment-specific Helm overlays:

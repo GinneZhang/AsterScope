@@ -96,7 +96,10 @@ pipeline {
 
     stage('Build Images') {
       when {
-        branch 'main'
+        allOf {
+          branch 'main'
+          not { changeRequest() }
+        }
       }
       steps {
         script {
@@ -120,7 +123,10 @@ pipeline {
 
     stage('Push Images') {
       when {
-        branch 'main'
+        allOf {
+          branch 'main'
+          not { changeRequest() }
+        }
       }
       steps {
         withCredentials([usernamePassword(credentialsId: params.DOCKER_REGISTRY_CREDENTIALS_ID, usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
@@ -141,6 +147,7 @@ pipeline {
       when {
         allOf {
           branch 'main'
+          not { changeRequest() }
           expression { return params.DEPLOY_TO_K8S }
         }
       }

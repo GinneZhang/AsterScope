@@ -300,6 +300,8 @@ python tests/load_test.py
   - [api/main.py](/Users/ginnezhang/Documents/Playground/NovaSearch/api/main.py)
   - [retrieval/main.py](/Users/ginnezhang/Documents/Playground/NovaSearch/retrieval/main.py)
 - Jenkins 现在可以自动化 **API + retrieval** 的镜像构建与基于 Helm 的部署
+- Pull Request 现在只运行校验路径（`Sanity`、`Unit Tests` 和可选 `Integration Tests`）
+- `main` 分支会继续执行镜像构建、推送和 Helm 部署
 - 生产环境发布现在带有 Jenkins 手动确认步骤，staging 可以自动部署
 
 环境级 Helm 配置：
