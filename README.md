@@ -279,7 +279,7 @@ What it does:
 - runs sanity checks and unit tests
 - optionally starts `docker compose` infrastructure and runs integration tests
 - builds and pushes both the `api` and `retrieval` container images
-- deploys both workloads to Kubernetes using [deploy/k8s/api-deployment.yaml](/Users/ginnezhang/Documents/Playground/NovaSearch/deploy/k8s/api-deployment.yaml) and [deploy/k8s/retrieval-deployment.yaml](/Users/ginnezhang/Documents/Playground/NovaSearch/deploy/k8s/retrieval-deployment.yaml)
+- deploys both workloads to Kubernetes as a single Helm release using [deploy/helm/asterscope](/Users/ginnezhang/Documents/Playground/NovaSearch/deploy/helm/asterscope)
 
 Supporting files:
 
@@ -288,6 +288,7 @@ Supporting files:
 - [scripts/jenkins/wait_for_stack.sh](/Users/ginnezhang/Documents/Playground/NovaSearch/scripts/jenkins/wait_for_stack.sh)
 - [scripts/jenkins/deploy_api.sh](/Users/ginnezhang/Documents/Playground/NovaSearch/scripts/jenkins/deploy_api.sh)
 - [scripts/jenkins/deploy_retrieval.sh](/Users/ginnezhang/Documents/Playground/NovaSearch/scripts/jenkins/deploy_retrieval.sh)
+- [scripts/jenkins/deploy_stack.sh](/Users/ginnezhang/Documents/Playground/NovaSearch/scripts/jenkins/deploy_stack.sh)
 
 Recommended Jenkins credentials:
 
@@ -302,13 +303,14 @@ Recommended pipeline parameters:
 - `API_IMAGE_REPOSITORY=asterscope/api`
 - `RETRIEVAL_IMAGE_REPOSITORY=asterscope/retrieval`
 - `DOCKER_REGISTRY=ghcr.io/<your-org>` or your private registry
+- `HELM_RELEASE_NAME=asterscope`
 
 Important note:
 
 - The repository now exposes two production service entry points:
   - [api/main.py](/Users/ginnezhang/Documents/Playground/NovaSearch/api/main.py)
   - [retrieval/main.py](/Users/ginnezhang/Documents/Playground/NovaSearch/retrieval/main.py)
-- Jenkins now automates **API + retrieval image build and Kubernetes deployment**.
+- Jenkins now automates **API + retrieval image build and Helm-based Kubernetes deployment**.
 
 The benchmark runner now uses fast custom metrics for the official summary:
 

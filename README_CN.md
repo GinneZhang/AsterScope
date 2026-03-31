@@ -267,7 +267,7 @@ python tests/load_test.py
 - 执行 sanity check 和单元测试
 - 可选启动 `docker compose` 基础设施并运行集成测试
 - 构建并推送 `api` 与 `retrieval` 两个镜像
-- 使用 [deploy/k8s/api-deployment.yaml](/Users/ginnezhang/Documents/Playground/NovaSearch/deploy/k8s/api-deployment.yaml) 和 [deploy/k8s/retrieval-deployment.yaml](/Users/ginnezhang/Documents/Playground/NovaSearch/deploy/k8s/retrieval-deployment.yaml) 自动部署两个工作负载到 Kubernetes
+- 使用 [deploy/helm/asterscope](/Users/ginnezhang/Documents/Playground/NovaSearch/deploy/helm/asterscope) 作为单一 Helm release 自动部署两个工作负载到 Kubernetes
 
 配套文件：
 
@@ -276,18 +276,20 @@ python tests/load_test.py
 - [scripts/jenkins/wait_for_stack.sh](/Users/ginnezhang/Documents/Playground/NovaSearch/scripts/jenkins/wait_for_stack.sh)
 - [scripts/jenkins/deploy_api.sh](/Users/ginnezhang/Documents/Playground/NovaSearch/scripts/jenkins/deploy_api.sh)
 - [scripts/jenkins/deploy_retrieval.sh](/Users/ginnezhang/Documents/Playground/NovaSearch/scripts/jenkins/deploy_retrieval.sh)
+- [scripts/jenkins/deploy_stack.sh](/Users/ginnezhang/Documents/Playground/NovaSearch/scripts/jenkins/deploy_stack.sh)
 
 推荐 Jenkins 凭据：
 
 - `docker-registry-creds`：镜像仓库用户名/密码
 - `kubeconfig-asterscope`：目标 Kubernetes 集群的 kubeconfig 文件凭据
+- `HELM_RELEASE_NAME=asterscope`
 
 当前说明：
 
 - 仓库现在有两个明确的生产入口：
   - [api/main.py](/Users/ginnezhang/Documents/Playground/NovaSearch/api/main.py)
   - [retrieval/main.py](/Users/ginnezhang/Documents/Playground/NovaSearch/retrieval/main.py)
-- Jenkins 现在可以自动化 **API + retrieval** 的镜像构建与部署
+- Jenkins 现在可以自动化 **API + retrieval** 的镜像构建与基于 Helm 的部署
 
 Benchmark runner 现在使用更快的自写指标作为正式评测结果：
 

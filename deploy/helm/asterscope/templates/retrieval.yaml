@@ -1,0 +1,100 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "asterscope.componentName" (dict "root" . "component" "retrieval") }}
+  labels:
+    {{- include "asterscope.labels" . | nindent 4 }}
+    app.kubernetes.io/component: retrieval
+spec:
+  replicas: {{ .Values.replicaCount.retrieval }}
+  selector:
+    matchLabels:
+      {{- include "asterscope.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: retrieval
+  template:
+    metadata:
+      labels:
+        {{- include "asterscope.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: retrieval
+    spec:
+      containers:
+        - name: retrieval
+          image: "{{ .Values.image.retrieval.repository }}:{{ .Values.image.retrieval.tag }}"
+          imagePullPolicy: {{ .Values.image.retrieval.pullPolicy }}
+          command:
+            - uvicorn
+            - retrieval.main:app
+            - --host
+            - 0.0.0.0
+            - --port
+            - {{ .Values.service.retrieval.port | quote }}
+          ports:
+            - containerPort: {{ .Values.service.retrieval.port }}
+          envFrom:
+            - secretRef:
+                name: {{ include "asterscope.secretName" . }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.service.retrieval.port }}
+            initialDelaySeconds: {{ .Values.probes.retrieval.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.retrieval.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.retrieval.liveness.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.retrieval.liveness.failureThreshold }}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.service.retrieval.port }}
+            initialDelaySeconds: {{ .Values.probes.retrieval.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.retrieval.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.retrieval.readiness.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.retrieval.readiness.failureThreshold }}
+          resources:
+            {{- toYaml .Values.resources.retrieval | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "asterscope.componentName" (dict "root" . "component" "retrieval") }}
+  labels:
+    {{- include "asterscope.labels" . | nindent 4 }}
+    app.kubernetes.io/component: retrieval
+spec:
+  type: {{ .Values.service.retrieval.type }}
+  ports:
+    - port: {{ .Values.service.retrieval.port }}
+      targetPort: {{ .Values.service.retrieval.port }}
+      protocol: TCP
+  selector:
+    {{- include "asterscope.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: retrieval
+---
+{{- if .Values.autoscaling.retrieval.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "asterscope.componentName" (dict "root" . "component" "retrieval-hpa") }}
+  labels:
+    {{- include "asterscope.labels" . | nindent 4 }}
+    app.kubernetes.io/component: retrieval
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "asterscope.componentName" (dict "root" . "component" "retrieval") }}
+  minReplicas: {{ .Values.autoscaling.retrieval.minReplicas }}
+  maxReplicas: {{ .Values.autoscaling.retrieval.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.autoscaling.retrieval.targetCPUUtilization }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.autoscaling.retrieval.targetMemoryUtilization }}
+{{- end }}

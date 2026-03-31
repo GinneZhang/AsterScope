@@ -53,14 +53,28 @@ resources:
       memory: 8Gi
 
 probes:
-  liveness:
-    initialDelaySeconds: 30
-    periodSeconds: 15
-    failureThreshold: 3
-  readiness:
-    initialDelaySeconds: 15
-    periodSeconds: 10
-    failureThreshold: 3
+  api:
+    liveness:
+      initialDelaySeconds: 30
+      periodSeconds: 15
+      timeoutSeconds: 5
+      failureThreshold: 3
+    readiness:
+      initialDelaySeconds: 15
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+  retrieval:
+    liveness:
+      initialDelaySeconds: 45
+      periodSeconds: 30
+      timeoutSeconds: 10
+      failureThreshold: 3
+    readiness:
+      initialDelaySeconds: 30
+      periodSeconds: 15
+      timeoutSeconds: 10
+      failureThreshold: 3
 
 # --- External Secrets Operator (Phase 14) ---
 externalSecrets:

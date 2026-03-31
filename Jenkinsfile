@@ -18,6 +18,7 @@ pipeline {
     string(name: 'DOCKER_REGISTRY', defaultValue: '', description: 'Optional registry prefix, e.g. ghcr.io/your-org')
     string(name: 'DOCKER_REGISTRY_CREDENTIALS_ID', defaultValue: 'docker-registry-creds', description: 'Jenkins username/password credential id for the container registry.')
     string(name: 'KUBECONFIG_CREDENTIALS_ID', defaultValue: 'kubeconfig-asterscope', description: 'Jenkins secret file credential id containing kubeconfig.')
+    string(name: 'HELM_RELEASE_NAME', defaultValue: 'asterscope', description: 'Helm release name for the deployed stack.')
   }
 
   environment {
@@ -53,6 +54,7 @@ pipeline {
           bash -n scripts/jenkins/wait_for_stack.sh
           bash -n scripts/jenkins/deploy_api.sh
           bash -n scripts/jenkins/deploy_retrieval.sh
+          bash -n scripts/jenkins/deploy_stack.sh
         '''
       }
     }
@@ -142,10 +144,8 @@ pipeline {
       steps {
         withCredentials([file(credentialsId: params.KUBECONFIG_CREDENTIALS_ID, variable: 'KUBECONFIG')]) {
           sh '''
-            chmod +x scripts/jenkins/deploy_api.sh
-            chmod +x scripts/jenkins/deploy_retrieval.sh
-            ./scripts/jenkins/deploy_api.sh "$(cat .image_api_ref)" "${K8S_NAMESPACE}"
-            ./scripts/jenkins/deploy_retrieval.sh "$(cat .image_retrieval_ref)" "${K8S_NAMESPACE}"
+            chmod +x scripts/jenkins/deploy_stack.sh
+            ./scripts/jenkins/deploy_stack.sh "$(cat .image_api_ref)" "$(cat .image_retrieval_ref)" "${K8S_NAMESPACE}" "${HELM_RELEASE_NAME}"
           '''
         }
       }
