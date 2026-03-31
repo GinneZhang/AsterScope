@@ -1,0 +1,17 @@
+.git
+.gitignore
+.venv
+__pycache__
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+htmlcov
+.env
+.env.*
+docs/*.json
+tests/__pycache__
+deploy/helm/**/*.tgz
+node_modules
+dist
+build

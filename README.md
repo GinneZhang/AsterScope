@@ -268,6 +268,48 @@ BENCHMARK_NAME=two_wiki BENCHMARK_SAMPLE_SIZE=100 BENCHMARK_SPLIT=validation pyt
 python tests/load_test.py
 ```
 
+## Jenkins CI/CD
+
+This repository now includes a production-minded Jenkins pipeline in [Jenkinsfile](/Users/ginnezhang/Documents/Playground/NovaSearch/Jenkinsfile).
+
+What it does:
+
+- creates a Python virtual environment
+- installs runtime and dev dependencies
+- runs sanity checks and unit tests
+- optionally starts `docker compose` infrastructure and runs integration tests
+- builds and pushes both the `api` and `retrieval` container images
+- deploys both workloads to Kubernetes using [deploy/k8s/api-deployment.yaml](/Users/ginnezhang/Documents/Playground/NovaSearch/deploy/k8s/api-deployment.yaml) and [deploy/k8s/retrieval-deployment.yaml](/Users/ginnezhang/Documents/Playground/NovaSearch/deploy/k8s/retrieval-deployment.yaml)
+
+Supporting files:
+
+- [Dockerfile](/Users/ginnezhang/Documents/Playground/NovaSearch/Dockerfile)
+- [scripts/jenkins/run_ci_tests.sh](/Users/ginnezhang/Documents/Playground/NovaSearch/scripts/jenkins/run_ci_tests.sh)
+- [scripts/jenkins/wait_for_stack.sh](/Users/ginnezhang/Documents/Playground/NovaSearch/scripts/jenkins/wait_for_stack.sh)
+- [scripts/jenkins/deploy_api.sh](/Users/ginnezhang/Documents/Playground/NovaSearch/scripts/jenkins/deploy_api.sh)
+- [scripts/jenkins/deploy_retrieval.sh](/Users/ginnezhang/Documents/Playground/NovaSearch/scripts/jenkins/deploy_retrieval.sh)
+
+Recommended Jenkins credentials:
+
+- `docker-registry-creds` — username/password for your container registry
+- `kubeconfig-asterscope` — secret file containing kubeconfig for the target cluster
+
+Recommended pipeline parameters:
+
+- `RUN_INTEGRATION_TESTS=true`
+- `DEPLOY_TO_K8S=true`
+- `K8S_NAMESPACE=asterscope`
+- `API_IMAGE_REPOSITORY=asterscope/api`
+- `RETRIEVAL_IMAGE_REPOSITORY=asterscope/retrieval`
+- `DOCKER_REGISTRY=ghcr.io/<your-org>` or your private registry
+
+Important note:
+
+- The repository now exposes two production service entry points:
+  - [api/main.py](/Users/ginnezhang/Documents/Playground/NovaSearch/api/main.py)
+  - [retrieval/main.py](/Users/ginnezhang/Documents/Playground/NovaSearch/retrieval/main.py)
+- Jenkins now automates **API + retrieval image build and Kubernetes deployment**.
+
 The benchmark runner now uses fast custom metrics for the official summary:
 
 - `Answer EM`
