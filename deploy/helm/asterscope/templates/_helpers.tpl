@@ -29,3 +29,11 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- define "asterscope.secretName" -}}
 {{- printf "%s-secrets" (include "asterscope.fullname" .) | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
+
+{{- define "asterscope.serviceAccountName" -}}
+{{- if .Values.serviceAccount.create -}}
+{{- default (include "asterscope.fullname" .) .Values.serviceAccount.name -}}
+{{- else -}}
+{{- default "default" .Values.serviceAccount.name -}}
+{{- end -}}
+{{- end -}}

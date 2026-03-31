@@ -1,0 +1,73 @@
+{{- if .Values.ingress.api.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "asterscope.componentName" (dict "root" . "component" "api-ingress") }}
+  labels:
+    {{- include "asterscope.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+  {{- with .Values.ingress.api.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if .Values.ingress.api.className }}
+  ingressClassName: {{ .Values.ingress.api.className }}
+  {{- end }}
+  rules:
+    {{- range .Values.ingress.api.hosts }}
+    - host: {{ .host | quote }}
+      http:
+        paths:
+          {{- range .paths }}
+          - path: {{ .path }}
+            pathType: {{ .pathType }}
+            backend:
+              service:
+                name: {{ include "asterscope.componentName" (dict "root" $ "component" "api") }}
+                port:
+                  number: {{ $.Values.service.api.port }}
+          {{- end }}
+    {{- end }}
+  {{- with .Values.ingress.api.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+---
+{{- end }}
+{{- if .Values.ingress.retrieval.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "asterscope.componentName" (dict "root" . "component" "retrieval-ingress") }}
+  labels:
+    {{- include "asterscope.labels" . | nindent 4 }}
+    app.kubernetes.io/component: retrieval
+  {{- with .Values.ingress.retrieval.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if .Values.ingress.retrieval.className }}
+  ingressClassName: {{ .Values.ingress.retrieval.className }}
+  {{- end }}
+  rules:
+    {{- range .Values.ingress.retrieval.hosts }}
+    - host: {{ .host | quote }}
+      http:
+        paths:
+          {{- range .paths }}
+          - path: {{ .path }}
+            pathType: {{ .pathType }}
+            backend:
+              service:
+                name: {{ include "asterscope.componentName" (dict "root" $ "component" "retrieval") }}
+                port:
+                  number: {{ $.Values.service.retrieval.port }}
+          {{- end }}
+    {{- end }}
+  {{- with .Values.ingress.retrieval.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}

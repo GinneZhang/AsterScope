@@ -16,7 +16,16 @@ spec:
       labels:
         {{- include "asterscope.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: retrieval
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
     spec:
+      serviceAccountName: {{ include "asterscope.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: retrieval
           image: "{{ .Values.image.retrieval.repository }}:{{ .Values.image.retrieval.tag }}"

@@ -4,6 +4,15 @@ replicaCount:
   api: 2
   retrieval: 2
 
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+imagePullSecrets: []
+
+podAnnotations: {}
+
 image:
   api:
     repository: asterscope/api
@@ -21,6 +30,28 @@ service:
   retrieval:
     type: ClusterIP
     port: 8001
+
+ingress:
+  api:
+    enabled: false
+    className: ""
+    annotations: {}
+    hosts:
+      - host: api.asterscope.local
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
+  retrieval:
+    enabled: false
+    className: ""
+    annotations: {}
+    hosts:
+      - host: retrieval.asterscope.local
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
 
 autoscaling:
   api:

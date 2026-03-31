@@ -277,6 +277,7 @@ python tests/load_test.py
 - [scripts/jenkins/deploy_api.sh](/Users/ginnezhang/Documents/Playground/NovaSearch/scripts/jenkins/deploy_api.sh)
 - [scripts/jenkins/deploy_retrieval.sh](/Users/ginnezhang/Documents/Playground/NovaSearch/scripts/jenkins/deploy_retrieval.sh)
 - [scripts/jenkins/deploy_stack.sh](/Users/ginnezhang/Documents/Playground/NovaSearch/scripts/jenkins/deploy_stack.sh)
+- [docs/jenkins_setup.md](/Users/ginnezhang/Documents/Playground/NovaSearch/docs/jenkins_setup.md)
 
 推荐 Jenkins 凭据：
 
@@ -308,6 +309,14 @@ python tests/load_test.py
 
 - [deploy/helm/asterscope/values-staging.yaml](/Users/ginnezhang/Documents/Playground/NovaSearch/deploy/helm/asterscope/values-staging.yaml)
 - [deploy/helm/asterscope/values-prod.yaml](/Users/ginnezhang/Documents/Playground/NovaSearch/deploy/helm/asterscope/values-prod.yaml)
+
+当前 chart 还支持这些生产配置：
+
+- `serviceAccount` 创建与注解
+- `imagePullSecrets`
+- `api` 与 `retrieval` 两个 Ingress 资源
+
+Jenkins multibranch、GitHub webhook 和 badge 配置说明见 [docs/jenkins_setup.md](/Users/ginnezhang/Documents/Playground/NovaSearch/docs/jenkins_setup.md)。
 
 Benchmark runner 现在使用更快的自写指标作为正式评测结果：
 

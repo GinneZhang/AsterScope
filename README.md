@@ -289,6 +289,7 @@ Supporting files:
 - [scripts/jenkins/deploy_api.sh](/Users/ginnezhang/Documents/Playground/NovaSearch/scripts/jenkins/deploy_api.sh)
 - [scripts/jenkins/deploy_retrieval.sh](/Users/ginnezhang/Documents/Playground/NovaSearch/scripts/jenkins/deploy_retrieval.sh)
 - [scripts/jenkins/deploy_stack.sh](/Users/ginnezhang/Documents/Playground/NovaSearch/scripts/jenkins/deploy_stack.sh)
+- [docs/jenkins_setup.md](/Users/ginnezhang/Documents/Playground/NovaSearch/docs/jenkins_setup.md)
 
 Recommended Jenkins credentials:
 
@@ -320,6 +321,14 @@ Environment-specific Helm overlays:
 
 - [deploy/helm/asterscope/values-staging.yaml](/Users/ginnezhang/Documents/Playground/NovaSearch/deploy/helm/asterscope/values-staging.yaml)
 - [deploy/helm/asterscope/values-prod.yaml](/Users/ginnezhang/Documents/Playground/NovaSearch/deploy/helm/asterscope/values-prod.yaml)
+
+Chart features for production deployment:
+
+- `serviceAccount` creation and annotations
+- `imagePullSecrets`
+- `Ingress` resources for both `api` and `retrieval`
+
+For Jenkins multibranch setup, GitHub webhook wiring, and build badge examples, see [docs/jenkins_setup.md](/Users/ginnezhang/Documents/Playground/NovaSearch/docs/jenkins_setup.md).
 
 The benchmark runner now uses fast custom metrics for the official summary:
 
